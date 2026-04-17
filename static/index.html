@@ -72,10 +72,19 @@
               </div>
             </div>
           </div>
-          <div class="empty-hint">Send a message to start. Memory recall and save are on by default.</div>
+          <div class="empty-hint">Send a message to start. Memory recall and save are on by default. Drop files anywhere to attach them to this wing.</div>
         </div>
         <div id="messages" hidden></div>
+        <div id="drag-overlay" hidden>
+          <div class="drag-card">
+            <div class="drag-icon">⤓</div>
+            <div>Drop to attach to wing <b id="drag-wing">personal</b></div>
+          </div>
+        </div>
       </section>
+
+      <div id="attach-staging" hidden></div>
+      <input type="file" id="attach-file-input" hidden multiple />
 
       <form id="composer">
         <div class="composer-pill">
@@ -167,6 +176,15 @@
                   identity in the Layer 0 above. Stored locally in your browser.
                 </span>
                 <textarea id="wing-prompt" rows="4" placeholder="e.g. This wing is for the dos-clone game. Code in TypeScript. Prefer canvas APIs over WebGL."></textarea>
+              </label>
+              <label>
+                Wing attachments
+                <span class="caption">
+                  Files attached to this wing. Each file is chunked and filed as drawers in
+                  the <code>attachments</code> room, so memory recall pulls from them in every
+                  chat in this wing. Drop files on the chat area or click <code>+</code> in the composer.
+                </span>
+                <div id="attachments-list"></div>
               </label>
             </div>
           </section>

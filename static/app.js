@@ -76,6 +76,12 @@ const els = {
   palaceLabel: $("palace-label"),
   emptyState: $("empty-state"),
   messages: $("messages"),
+  chatArea: $("chat-area"),
+  dragOverlay: $("drag-overlay"),
+  dragWing: $("drag-wing"),
+  attachStaging: $("attach-staging"),
+  attachFileInput: $("attach-file-input"),
+  attachmentsList: $("attachments-list"),
   input: $("input"),
   composer: $("composer"),
   send: $("send"),
@@ -744,7 +750,7 @@ els.showSidebar.addEventListener("click", () => {
 });
 
 els.openSettings.addEventListener("click", openSettings);
-els.composerPlus.addEventListener("click", openSettings);
+els.composerPlus.addEventListener("click", () => els.attachFileInput.click());
 els.closeSettings.addEventListener("click", () => {
   els.settingsOverlay.hidden = true;
   saveWingPromptForCurrent();
@@ -762,7 +768,135 @@ async function openSettings() {
   await loadIdentity();
   loadWingPromptForCurrent();
   loadWakeup();
+  loadAttachments();
 }
+
+/* ─── Attachments ─────────────────────────────────────────────────────── */
+
+function makeAttachChip(text, kind = "") {
+  const chip = document.createElement("div");
+  chip.className = `attach-chip ${kind}`;
+  chip.textContent = text;
+  els.attachStaging.appendChild(chip);
+  els.attachStaging.hidden = false;
+  return chip;
+}
+
+async function uploadAttachment(file) {
+  const wing = state.prefs.wing || "personal";
+  const chip = makeAttachChip(`uploading ${file.name}…`, "uploading");
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const r = await fetch(`/api/wings/${encodeURIComponent(wing)}/attach`, {
+      method: "POST",
+      body: fd,
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
+    chip.textContent = `✓ ${file.name} → ${data.chunks} chunks in ${wing}`;
+    chip.className = "attach-chip ok";
+    setStatus(`attached ${file.name} (${data.chunks} chunks)`, "ok");
+    rememberWing(wing);
+    await loadWings(wing);
+    if (!els.settingsOverlay.hidden) loadAttachments();
+  } catch (e) {
+    chip.textContent = `✗ ${file.name}: ${e.message}`;
+    chip.className = "attach-chip err";
+    setStatus(`attach failed: ${e.message}`, "err");
+  }
+  // Auto-dismiss successful chips after 6s
+  setTimeout(() => {
+    chip.remove();
+    if (!els.attachStaging.children.length) els.attachStaging.hidden = true;
+  }, 6000);
+}
+
+async function uploadFiles(fileList) {
+  for (const f of fileList) {
+    await uploadAttachment(f);
+  }
+}
+
+async function loadAttachments() {
+  const wing = state.prefs.wing || "personal";
+  if (!els.attachmentsList) return;
+  els.attachmentsList.innerHTML = '<div class="attachment-empty">loading…</div>';
+  try {
+    const r = await fetch(
+      `/api/wings/${encodeURIComponent(wing)}/attachments`,
+    );
+    const data = await r.json();
+    els.attachmentsList.innerHTML = "";
+    if (!data.attachments?.length) {
+      els.attachmentsList.innerHTML =
+        '<div class="attachment-empty">No files attached to this wing.</div>';
+      return;
+    }
+    for (const a of data.attachments) {
+      const row = document.createElement("div");
+      row.className = "attachment-row";
+      row.innerHTML = `
+        <span>
+          <span class="filename">${escapeHtml(a.filename)}</span>
+          <span class="meta">${a.chunks} chunks</span>
+        </span>
+        <button class="danger" type="button">remove</button>
+      `;
+      row.querySelector("button").addEventListener("click", async () => {
+        if (!confirm(`Remove ${a.filename} from wing "${wing}"?`)) return;
+        try {
+          const dr = await fetch(
+            `/api/wings/${encodeURIComponent(wing)}/attachments?filename=${encodeURIComponent(a.filename)}`,
+            { method: "DELETE" },
+          );
+          const dd = await dr.json();
+          if (!dr.ok) throw new Error(dd.detail || "failed");
+          setStatus(`removed ${a.filename} (${dd.deleted} chunks)`, "warn");
+          await loadAttachments();
+          await loadWings(wing);
+        } catch (e) {
+          setStatus(`remove failed: ${e.message}`, "err");
+        }
+      });
+      els.attachmentsList.appendChild(row);
+    }
+  } catch (e) {
+    els.attachmentsList.innerHTML = `<div class="attachment-empty">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+els.attachFileInput.addEventListener("change", async (e) => {
+  await uploadFiles(e.target.files);
+  els.attachFileInput.value = "";
+});
+
+let _dragDepth = 0;
+window.addEventListener("dragenter", (e) => {
+  if (!e.dataTransfer?.types?.includes("Files")) return;
+  _dragDepth++;
+  els.dragOverlay.hidden = false;
+  els.chatArea.classList.add("drag-over");
+  els.dragWing.textContent = state.prefs.wing || "personal";
+});
+window.addEventListener("dragleave", () => {
+  _dragDepth = Math.max(0, _dragDepth - 1);
+  if (_dragDepth === 0) {
+    els.dragOverlay.hidden = true;
+    els.chatArea.classList.remove("drag-over");
+  }
+});
+window.addEventListener("dragover", (e) => {
+  if (e.dataTransfer?.types?.includes("Files")) e.preventDefault();
+});
+window.addEventListener("drop", async (e) => {
+  if (!e.dataTransfer?.files?.length) return;
+  e.preventDefault();
+  _dragDepth = 0;
+  els.dragOverlay.hidden = true;
+  els.chatArea.classList.remove("drag-over");
+  await uploadFiles(e.dataTransfer.files);
+});
 
 els.saveIdentity.addEventListener("click", saveIdentity);
 els.resetIdentity.addEventListener("click", resetIdentity);

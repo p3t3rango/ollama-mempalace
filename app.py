@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -26,6 +26,9 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 DEFAULT_ROOM = "general"
 DEFAULT_WING = "personal"
 FACTS_ROOM = "auto_facts"
+ATTACH_ROOM = "attachments"
+MAX_ATTACH_BYTES = 5 * 1024 * 1024  # 5 MB
+CHUNK_TARGET_CHARS = 1500
 
 config = MempalaceConfig()
 config.init()
@@ -148,6 +151,143 @@ async def delete_wing(name: str):
         raise HTTPException(404, f"Wing {name!r} has no drawers")
     col.delete(ids=ids)
     return {"deleted": len(ids), "wing": name}
+
+
+def _safe_filename(name: str) -> str:
+    return re.sub(r"[^\w.-]", "_", name)[:120] or "attachment"
+
+
+def _chunk_text(text: str, target: int = CHUNK_TARGET_CHARS) -> list[str]:
+    """Greedy paragraph-aware chunker. Falls back to hard splits for huge paragraphs."""
+    paras = re.split(r"\n\s*\n", text)
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for p in paras:
+        p = p.strip()
+        if not p:
+            continue
+        if len(p) > target * 2:
+            if current:
+                chunks.append("\n\n".join(current))
+                current, current_len = [], 0
+            for i in range(0, len(p), target):
+                chunks.append(p[i : i + target])
+            continue
+        if current_len + len(p) > target and current:
+            chunks.append("\n\n".join(current))
+            current, current_len = [p], len(p)
+        else:
+            current.append(p)
+            current_len += len(p) + 2
+    if current:
+        chunks.append("\n\n".join(current))
+    return chunks
+
+
+@app.post("/api/wings/{wing}/attach")
+async def attach_to_wing(wing: str, file: UploadFile = File(...)):
+    try:
+        wing = sanitize_name(wing, "wing")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    raw = await file.read()
+    if len(raw) > MAX_ATTACH_BYTES:
+        raise HTTPException(
+            413,
+            f"File is {len(raw)} bytes; max is {MAX_ATTACH_BYTES} bytes ({MAX_ATTACH_BYTES // 1024 // 1024} MB).",
+        )
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            400,
+            "File is not UTF-8 text. Only text files (txt, md, json, code, etc.) are supported in v1.",
+        )
+    text = text.strip()
+    if not text:
+        raise HTTPException(400, "File is empty.")
+
+    chunks = _chunk_text(text)
+    safe_name = _safe_filename(file.filename or "attachment")
+
+    saved: list[str] = []
+    errors: list[str] = []
+    for i, chunk in enumerate(chunks):
+        result = tool_add_drawer(
+            wing=wing,
+            room=ATTACH_ROOM,
+            content=chunk,
+            source_file=f"attachment://{safe_name}#{i}",
+            added_by="ollama-mempalace-attach",
+        )
+        if result.get("success"):
+            did = result.get("drawer_id")
+            if did:
+                saved.append(did)
+        else:
+            errors.append(result.get("error", "unknown"))
+
+    return {
+        "filename": file.filename,
+        "stored_as": safe_name,
+        "chunks": len(chunks),
+        "saved": len(saved),
+        "errors": errors,
+    }
+
+
+@app.get("/api/wings/{wing}/attachments")
+async def list_attachments(wing: str):
+    col = _safe_collection()
+    if col is None:
+        return {"attachments": []}
+    try:
+        hits = col.get(
+            where={"$and": [{"wing": wing}, {"room": ATTACH_ROOM}]},
+            include=["metadatas"],
+        )
+    except Exception as e:
+        return {"attachments": [], "error": str(e)}
+    counts: dict[str, int] = {}
+    for m in hits.get("metadatas") or []:
+        src = (m or {}).get("source_file", "") or ""
+        if src.startswith("attachment://"):
+            base = src.split("#", 1)[0].replace("attachment://", "")
+            counts[base] = counts.get(base, 0) + 1
+    return {
+        "attachments": [
+            {"filename": n, "chunks": c} for n, c in sorted(counts.items())
+        ]
+    }
+
+
+@app.delete("/api/wings/{wing}/attachments")
+async def delete_attachment(wing: str, filename: str):
+    col = _safe_collection()
+    if col is None:
+        raise HTTPException(404, "No palace yet")
+    safe = _safe_filename(filename)
+    try:
+        hits = col.get(
+            where={"$and": [{"wing": wing}, {"room": ATTACH_ROOM}]},
+            include=["metadatas"],
+        )
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    ids_all = hits.get("ids") or []
+    metas = hits.get("metadatas") or []
+    target_prefix = f"attachment://{safe}"
+    matched = [
+        ids_all[i]
+        for i, m in enumerate(metas)
+        if (m or {}).get("source_file", "").startswith(target_prefix)
+    ]
+    if not matched:
+        raise HTTPException(404, f"No attachment {filename!r} in wing {wing!r}")
+    col.delete(ids=matched)
+    return {"deleted": len(matched), "filename": filename}
 
 
 @app.get("/api/search")
