@@ -1127,6 +1127,15 @@ async def chat(req: ChatRequest):
                         msg_out = (data or {}).get("message", {}) or {}
                         tool_calls = msg_out.get("tool_calls") or []
                         assistant_text = msg_out.get("content", "") or ""
+                        thinking_text = msg_out.get("thinking", "") or ""
+                        if thinking_text:
+                            yield (
+                                "data: "
+                                + json.dumps(
+                                    {"type": "thinking", "content": thinking_text}
+                                )
+                                + "\n\n"
+                            )
 
                         if not tool_calls:
                             full_response = assistant_text
@@ -1247,6 +1256,18 @@ async def chat(req: ChatRequest):
                                 )
                                 return
                             msg = chunk.get("message", {}) or {}
+                            thinking = msg.get("thinking", "")
+                            if thinking:
+                                yield (
+                                    "data: "
+                                    + json.dumps(
+                                        {
+                                            "type": "thinking",
+                                            "content": thinking,
+                                        }
+                                    )
+                                    + "\n\n"
+                                )
                             token = msg.get("content", "")
                             if token:
                                 full_response += token

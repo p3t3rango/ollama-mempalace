@@ -1035,6 +1035,52 @@ textarea::placeholder {
   display: none;
 }
 
+.msg-thinking {
+  display: block;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid var(--border-2);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.msg-thinking summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--fg-muted);
+  padding: 2px 0;
+}
+
+.msg-thinking summary::-webkit-details-marker {
+  display: none;
+}
+
+.msg-thinking[open] summary::before {
+  content: "▾ ";
+}
+
+.msg-thinking:not([open]) summary::before {
+  content: "▸ ";
+}
+
+.msg-thinking .thinking-body {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  font-style: italic;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+  opacity: 0.8;
+}
+
 .msg .msg-attachments {
   font-family: var(--mono);
   font-size: 10px;

@@ -366,6 +366,9 @@ function renderMessages() {
             .map((a) => escapeHtml(a))
             .join(", ")}</div>`
         : "";
+    const thinkingTag = m.thinking && m.thinking.trim()
+      ? `<details class="msg-thinking" ${m.content ? "" : "open"}><summary>💭 thinking</summary><div class="thinking-body">${escapeHtml(m.thinking)}</div></details>`
+      : "";
     const toolsTag =
       m.toolCalls && m.toolCalls.length
         ? `<div class="tool-calls">${m.toolCalls
@@ -382,7 +385,7 @@ function renderMessages() {
             })
             .join("")}</div>`
         : "";
-    div.innerHTML = `<span class="role">${m.role}</span>${toolsTag}${attachTag}${escapeHtml(shown)}`;
+    div.innerHTML = `<span class="role">${m.role}</span>${thinkingTag}${toolsTag}${attachTag}${escapeHtml(shown)}`;
     if (m.extracted && m.extracted.length) {
       const ex = document.createElement("div");
       ex.className = "extracted";
@@ -719,6 +722,9 @@ async function sendMessage(text) {
               `pulled ${evt.hits.length} memories from ${evt.wing}/${evt.room}`,
               "",
             );
+          } else if (evt.type === "thinking") {
+            asstMsg.thinking = (asstMsg.thinking || "") + evt.content;
+            renderMessages();
           } else if (evt.type === "tool_call") {
             if (!asstMsg.toolCalls) asstMsg.toolCalls = [];
             asstMsg.toolCalls.push({
