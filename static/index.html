@@ -266,6 +266,10 @@
                 <input id="t-identity" type="checkbox" checked />
                 Inject identity.txt as a system message
               </label>
+              <label class="check" title="Let the model decide when to search memory, query the knowledge graph, record facts, and write diary entries. Best with larger models (gemma4, gpt-oss, deepseek-r1, codellama). Smaller models may ignore tools or misuse them. Slower than regular chat because tool calls are non-streaming.">
+                <input id="t-tools" type="checkbox" />
+                Enable tools (agent auto-calls memory_search, kg_add, diary_write, …)
+              </label>
             </div>
           </section>
 

@@ -1044,6 +1044,51 @@ textarea::placeholder {
   border-bottom: 1px dashed var(--border);
 }
 
+.msg .tool-calls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.tool-chip {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--fg-dim);
+}
+
+.tool-chip summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool-chip summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-chip[open] {
+  display: block;
+  width: 100%;
+}
+
+.tool-chip pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 10px;
+  color: var(--fg-dim);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 .msg .extracted {
   margin-top: 6px;
   padding: 6px 10px;

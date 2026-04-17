@@ -92,6 +92,7 @@ class ChatRequest(BaseModel):
     save_to_memory: bool = True
     auto_extract: bool = True
     use_identity: bool = True
+    enable_tools: bool = False
     system_prompt: Optional[str] = None
     session_id: Optional[str] = None
     memory_limit: int = Field(default=5, ge=1, le=20)
@@ -754,6 +755,228 @@ async def get_wakeup(wing: Optional[str] = None):
         return {"text": "", "tokens_estimate": 0, "wing": wing, "error": str(e)}
 
 
+# ─── Tool calling (OpenAI-style schemas; Ollama forwards these verbatim) ────
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_search",
+            "description": (
+                "Search the user's palace for prior memories relevant to a query. "
+                "Call this BEFORE answering anything about the user's past "
+                "conversations, preferences, projects, or people. "
+                "Do not guess — verify by searching first."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language query to search for.",
+                    },
+                    "wing": {
+                        "type": "string",
+                        "description": "Optional wing to scope the search. Defaults to the current wing.",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Max results to return (1-10). Default 5.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kg_query",
+            "description": (
+                "Query the knowledge graph for what you know about an entity "
+                "(a person, project, or thing). Returns typed, time-aware facts. "
+                "Use this before claiming facts about someone or something."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity": {
+                        "type": "string",
+                        "description": "The entity name to query (e.g. 'Pete', 'dos-clone').",
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "description": "Optional YYYY-MM-DD; only facts valid at this date.",
+                    },
+                },
+                "required": ["entity"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kg_add",
+            "description": (
+                "Record a new fact in the knowledge graph as subject → predicate → object. "
+                "Use when the user states a durable fact, preference, or decision "
+                "(e.g. 'I prefer dark mode', 'Pete works at X')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string"},
+                    "predicate": {
+                        "type": "string",
+                        "description": "snake_case relationship, e.g. 'works_on', 'prefers', 'lives_in'.",
+                    },
+                    "object": {"type": "string"},
+                    "valid_from": {
+                        "type": "string",
+                        "description": "Optional YYYY-MM-DD when the fact became true.",
+                    },
+                },
+                "required": ["subject", "predicate", "object"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kg_invalidate",
+            "description": (
+                "Mark a prior fact as no longer true (e.g. user used to prefer X, now prefers Y). "
+                "Call with the OLD fact's subject/predicate/object to expire it, then kg_add the new fact."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string"},
+                    "predicate": {"type": "string"},
+                    "object": {"type": "string"},
+                    "ended": {
+                        "type": "string",
+                        "description": "Optional YYYY-MM-DD when the fact stopped being true.",
+                    },
+                },
+                "required": ["subject", "predicate", "object"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "diary_write",
+            "description": (
+                "Write a short reflection to the agent's own journal. "
+                "Use at natural breakpoints (after a meaningful exchange, when you learn "
+                "something worth remembering, or when the user says 'remember this'). "
+                "Keep entries brief and first-person."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entry": {"type": "string"},
+                    "topic": {
+                        "type": "string",
+                        "description": "Optional short tag (reflection, observation, todo, decision).",
+                    },
+                },
+                "required": ["entry"],
+            },
+        },
+    },
+]
+
+TOOL_PROTOCOL = (
+    "You have tools available. Use them proactively:\n"
+    "- BEFORE answering about the user's past (preferences, people, projects, "
+    "past decisions, events), call memory_search and/or kg_query FIRST. Never guess.\n"
+    "- When the user states a durable fact, preference, or decision, call kg_add.\n"
+    "- When something the user said before has changed, call kg_invalidate on the "
+    "old fact, then kg_add the new one.\n"
+    "- After a meaningful exchange, optionally call diary_write with a brief "
+    "first-person reflection.\n"
+    "Use tools silently — don't narrate 'I'm calling a tool'. Your text reply "
+    "should read naturally."
+)
+
+
+def _exec_tool(
+    name: str, raw_args, current_wing: str, session_id: Optional[str]
+) -> dict:
+    """Dispatch a tool call. Returns a JSON-serializable dict."""
+    if isinstance(raw_args, str):
+        try:
+            args = json.loads(raw_args) if raw_args.strip() else {}
+        except json.JSONDecodeError:
+            return {"error": f"invalid JSON arguments: {raw_args[:200]}"}
+    elif isinstance(raw_args, dict):
+        args = raw_args
+    else:
+        args = {}
+
+    try:
+        if name == "memory_search":
+            q = str(args.get("query") or "").strip()
+            if not q:
+                return {"error": "query is required"}
+            wing = args.get("wing") or current_wing
+            n = max(1, min(int(args.get("n", 5)), 10))
+            result = search_memories(
+                q, palace_path=PALACE_PATH, wing=wing, n_results=n
+            )
+            hits = result.get("results", []) or []
+            return {
+                "count": len(hits),
+                "hits": [
+                    {
+                        "wing": h.get("wing"),
+                        "room": h.get("room"),
+                        "similarity": h.get("similarity"),
+                        "text": (h.get("text") or "")[:600],
+                    }
+                    for h in hits
+                ],
+            }
+        if name == "kg_query":
+            entity = str(args.get("entity") or "").strip()
+            if not entity:
+                return {"error": "entity is required"}
+            return tool_kg_query(entity, as_of=args.get("as_of"))
+        if name == "kg_add":
+            subj = str(args.get("subject") or "").strip()
+            pred = str(args.get("predicate") or "").strip()
+            obj = str(args.get("object") or "").strip()
+            if not (subj and pred and obj):
+                return {"error": "subject, predicate, object are all required"}
+            return tool_kg_add(
+                subj, pred, obj, valid_from=args.get("valid_from")
+            )
+        if name == "kg_invalidate":
+            subj = str(args.get("subject") or "").strip()
+            pred = str(args.get("predicate") or "").strip()
+            obj = str(args.get("object") or "").strip()
+            if not (subj and pred and obj):
+                return {"error": "subject, predicate, object are all required"}
+            return tool_kg_invalidate(subj, pred, obj, ended=args.get("ended"))
+        if name == "diary_write":
+            entry = str(args.get("entry") or "").strip()
+            if not entry:
+                return {"error": "entry is required"}
+            return tool_diary_write(
+                "ollama-mempalace",
+                entry,
+                topic=str(args.get("topic") or "general"),
+            )
+        return {"error": f"unknown tool: {name}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+MAX_TOOL_ITERATIONS = 6
+
+
 def _format_memory_block(hits: list[dict]) -> str:
     if not hits:
         return ""
@@ -840,6 +1063,9 @@ async def chat(req: ChatRequest):
     if req.system_prompt and req.system_prompt.strip():
         out_messages.append({"role": "system", "content": req.system_prompt.strip()})
 
+    if req.enable_tools:
+        out_messages.append({"role": "system", "content": TOOL_PROTOCOL})
+
     memory_block = _format_memory_block(memory_hits)
     if memory_block:
         out_messages.append({"role": "system", "content": memory_block})
@@ -867,30 +1093,120 @@ async def chat(req: ChatRequest):
 
         full_response = ""
         try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream(
-                    "POST",
-                    f"{OLLAMA_HOST}/api/chat",
-                    json={
-                        "model": req.model,
-                        "messages": out_messages,
-                        "stream": True,
-                    },
-                ) as r:
-                    async for line in r.aiter_lines():
-                        if not line:
-                            continue
-                        try:
-                            chunk = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        msg = chunk.get("message", {}) or {}
-                        token = msg.get("content", "")
-                        if token:
-                            full_response += token
-                            yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
-                        if chunk.get("done"):
+            if req.enable_tools:
+                # Tool-enabled turn: non-streaming loop so tool_calls arrive intact.
+                async with httpx.AsyncClient(timeout=None) as client:
+                    current = list(out_messages)
+                    for _ in range(MAX_TOOL_ITERATIONS):
+                        r = await client.post(
+                            f"{OLLAMA_HOST}/api/chat",
+                            json={
+                                "model": req.model,
+                                "messages": current,
+                                "tools": TOOLS,
+                                "stream": False,
+                            },
+                        )
+                        r.raise_for_status()
+                        data = r.json()
+                        msg_out = (data or {}).get("message", {}) or {}
+                        tool_calls = msg_out.get("tool_calls") or []
+                        assistant_text = msg_out.get("content", "") or ""
+
+                        if not tool_calls:
+                            full_response = assistant_text
+                            if assistant_text:
+                                yield (
+                                    "data: "
+                                    + json.dumps(
+                                        {"type": "token", "content": assistant_text}
+                                    )
+                                    + "\n\n"
+                                )
                             break
+
+                        # Record the assistant's tool-call message in the history
+                        current.append(
+                            {
+                                "role": "assistant",
+                                "content": assistant_text,
+                                "tool_calls": tool_calls,
+                            }
+                        )
+
+                        for tc in tool_calls:
+                            fn = (tc or {}).get("function") or {}
+                            name = fn.get("name") or "unknown"
+                            raw_args = fn.get("arguments")
+                            yield (
+                                "data: "
+                                + json.dumps(
+                                    {
+                                        "type": "tool_call",
+                                        "name": name,
+                                        "arguments": raw_args,
+                                    }
+                                )
+                                + "\n\n"
+                            )
+                            result = _exec_tool(
+                                name, raw_args, wing, req.session_id
+                            )
+                            yield (
+                                "data: "
+                                + json.dumps(
+                                    {
+                                        "type": "tool_result",
+                                        "name": name,
+                                        "result": result,
+                                    }
+                                )
+                                + "\n\n"
+                            )
+                            current.append(
+                                {
+                                    "role": "tool",
+                                    "name": name,
+                                    "content": json.dumps(result),
+                                }
+                            )
+                    else:
+                        # Hit iteration cap
+                        yield (
+                            "data: "
+                            + json.dumps(
+                                {
+                                    "type": "error",
+                                    "message": f"tool loop exceeded {MAX_TOOL_ITERATIONS} iterations",
+                                }
+                            )
+                            + "\n\n"
+                        )
+            else:
+                async with httpx.AsyncClient(timeout=None) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{OLLAMA_HOST}/api/chat",
+                        json={
+                            "model": req.model,
+                            "messages": out_messages,
+                            "stream": True,
+                        },
+                    ) as r:
+                        async for line in r.aiter_lines():
+                            if not line:
+                                continue
+                            try:
+                                chunk = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            msg = chunk.get("message", {}) or {}
+                            token = msg.get("content", "")
+                            if token:
+                                full_response += token
+                                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                            if chunk.get("done"):
+                                break
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             return

@@ -42,6 +42,7 @@ const state = {
     save: true,
     extract: true,
     identity: true,
+    tools: false,
     showMemory: false,
     showAllWings: false,
   }),
@@ -116,6 +117,7 @@ const els = {
   tSave: $("t-save"),
   tExtract: $("t-extract"),
   tIdentity: $("t-identity"),
+  tTools: $("t-tools"),
   refreshWakeup: $("refresh-wakeup"),
   wakeupTokens: $("wakeup-tokens"),
   wakeupText: $("wakeup-text"),
@@ -142,6 +144,7 @@ function savePrefs() {
   state.prefs.save = els.tSave.checked;
   state.prefs.extract = els.tExtract.checked;
   state.prefs.identity = els.tIdentity.checked;
+  if (els.tTools) state.prefs.tools = els.tTools.checked;
   saveJSON(PREFS_KEY, state.prefs);
   syncRecallButton();
 }
@@ -352,7 +355,23 @@ function renderMessages() {
             .map((a) => escapeHtml(a))
             .join(", ")}</div>`
         : "";
-    div.innerHTML = `<span class="role">${m.role}</span>${attachTag}${escapeHtml(shown)}`;
+    const toolsTag =
+      m.toolCalls && m.toolCalls.length
+        ? `<div class="tool-calls">${m.toolCalls
+            .map((tc) => {
+              const argsStr =
+                typeof tc.arguments === "string"
+                  ? tc.arguments
+                  : JSON.stringify(tc.arguments ?? {}, null, 2);
+              const resultStr =
+                tc.result === null
+                  ? "…running"
+                  : JSON.stringify(tc.result, null, 2);
+              return `<details class="tool-chip"><summary>🔧 ${escapeHtml(tc.name)}</summary><pre>args: ${escapeHtml(argsStr)}\n\n→ ${escapeHtml(resultStr)}</pre></details>`;
+            })
+            .join("")}</div>`
+        : "";
+    div.innerHTML = `<span class="role">${m.role}</span>${toolsTag}${attachTag}${escapeHtml(shown)}`;
     if (m.extracted && m.extracted.length) {
       const ex = document.createElement("div");
       ex.className = "extracted";
@@ -645,6 +664,7 @@ async function sendMessage(text) {
     save_to_memory: session.anonymous ? false : state.prefs.save,
     auto_extract: session.anonymous ? false : state.prefs.extract,
     use_identity: state.prefs.identity,
+    enable_tools: session.anonymous ? false : !!state.prefs.tools,
     system_prompt: session.anonymous
       ? null
       : state.wingPrompts[session.wing] || null,
@@ -688,6 +708,28 @@ async function sendMessage(text) {
               `pulled ${evt.hits.length} memories from ${evt.wing}/${evt.room}`,
               "",
             );
+          } else if (evt.type === "tool_call") {
+            if (!asstMsg.toolCalls) asstMsg.toolCalls = [];
+            asstMsg.toolCalls.push({
+              name: evt.name,
+              arguments: evt.arguments,
+              result: null,
+            });
+            setStatus(`🔧 calling ${evt.name}…`, "");
+            renderMessages();
+          } else if (evt.type === "tool_result") {
+            if (asstMsg.toolCalls && asstMsg.toolCalls.length) {
+              for (let i = asstMsg.toolCalls.length - 1; i >= 0; i--) {
+                if (
+                  asstMsg.toolCalls[i].name === evt.name &&
+                  asstMsg.toolCalls[i].result === null
+                ) {
+                  asstMsg.toolCalls[i].result = evt.result;
+                  break;
+                }
+              }
+            }
+            renderMessages();
           } else if (evt.type === "token") {
             assistantText += evt.content;
             asstMsg.content = assistantText;
@@ -1868,9 +1910,15 @@ els.topbarWingNew.addEventListener("click", newWingFlow);
 els.wingRename.addEventListener("click", renameWing);
 els.wingDelete.addEventListener("click", deleteWing);
 
-[els.model, els.tRecall, els.tSave, els.tExtract, els.tIdentity].forEach((el) =>
-  el.addEventListener("change", savePrefs),
-);
+const prefInputs = [
+  els.model,
+  els.tRecall,
+  els.tSave,
+  els.tExtract,
+  els.tIdentity,
+];
+if (els.tTools) prefInputs.push(els.tTools);
+prefInputs.forEach((el) => el.addEventListener("change", savePrefs));
 
 els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
 if (els.wingPromptPicker) {
@@ -1888,6 +1936,7 @@ if (els.wingPromptPicker) {
   els.tSave.checked = state.prefs.save;
   els.tExtract.checked = state.prefs.extract;
   els.tIdentity.checked = state.prefs.identity;
+  if (els.tTools) els.tTools.checked = !!state.prefs.tools;
   els.room.value = state.prefs.room || "general";
   syncRecallButton();
 
