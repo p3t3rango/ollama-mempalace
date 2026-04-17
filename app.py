@@ -809,7 +809,7 @@ TOOLS = [
                 "properties": {
                     "entity": {
                         "type": "string",
-                        "description": "The entity name to query (e.g. 'Pete', 'dos-clone').",
+                        "description": "The entity name to query (e.g. 'Alex', 'dos-clone').",
                     },
                     "as_of": {
                         "type": "string",
@@ -827,7 +827,7 @@ TOOLS = [
             "description": (
                 "Record a new fact in the knowledge graph as subject → predicate → object. "
                 "Use when the user states a durable fact, preference, or decision "
-                "(e.g. 'I prefer dark mode', 'Pete works at X')."
+                "(e.g. 'I prefer dark mode', 'Alex works at X')."
             ),
             "parameters": {
                 "type": "object",
