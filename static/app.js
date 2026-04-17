@@ -4,6 +4,7 @@ const SESSIONS_KEY = "ollama-mempalace.sessions.v1";
 const ACTIVE_KEY = "ollama-mempalace.activeSession";
 const PREFS_KEY = "ollama-mempalace.prefs.v1";
 const WING_PROMPT_KEY = "ollama-mempalace.wing_prompts.v1";
+const ONBOARDED_KEY = "ollama-mempalace.onboarded";
 
 function uuid() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -73,6 +74,7 @@ const els = {
   closeSettings: $("close-settings"),
   identity: $("identity"),
   saveIdentity: $("save-identity"),
+  resetIdentity: $("reset-identity"),
   identityStatus: $("identity-status"),
   wing: $("wing"),
   wingNew: $("wing-new"),
@@ -366,14 +368,32 @@ function saveWingPromptForCurrent() {
 
 /* ─── Identity / Wakeup ────────────────────────────────────────────────── */
 
+const DEFAULT_IDENTITY = `I am a personal AI assistant for Pete.
+Traits: concise, direct, remembers what matters across conversations.
+Tone: warm but not sycophantic. Skip throat-clearing and trailing summaries.
+People: Pete (the user).
+`;
+
 async function loadIdentity() {
   try {
     const r = await fetch("/api/identity");
     const data = await r.json();
-    els.identity.value = data.text || "";
+    if (data.text && data.text.trim()) {
+      els.identity.value = data.text;
+      els.identityStatus.textContent = `loaded from ${data.path}`;
+    } else {
+      els.identity.value = DEFAULT_IDENTITY;
+      els.identityStatus.textContent =
+        "default shown (not saved) — edit and click Save to persist";
+    }
   } catch (e) {
     els.identityStatus.textContent = `load failed: ${e.message}`;
   }
+}
+
+function resetIdentity() {
+  els.identity.value = DEFAULT_IDENTITY;
+  els.identityStatus.textContent = "reset (not saved) — click Save to persist";
 }
 
 async function saveIdentity() {
@@ -654,6 +674,7 @@ async function openSettings() {
 }
 
 els.saveIdentity.addEventListener("click", saveIdentity);
+els.resetIdentity.addEventListener("click", resetIdentity);
 els.refreshWakeup.addEventListener("click", loadWakeup);
 
 els.wing.addEventListener("change", () => {
@@ -701,6 +722,14 @@ els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
     const h = await fetch("/api/health").then((r) => r.json());
     els.palaceLabel.textContent = h.palace_path;
   } catch {}
+
+  // First-run: open settings once so the user can set identity. Mark seen
+  // either way so it never auto-opens again, even if they close it without
+  // saving.
+  if (!localStorage.getItem(ONBOARDED_KEY)) {
+    localStorage.setItem(ONBOARDED_KEY, String(Date.now()));
+    openSettings();
+  }
 
   setStatus("ready", "ok");
   els.input.focus();

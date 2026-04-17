@@ -48,7 +48,8 @@ button {
   cursor: pointer;
 }
 
-.hidden {
+.hidden,
+[hidden] {
   display: none !important;
 }
 

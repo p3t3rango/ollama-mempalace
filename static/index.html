@@ -91,15 +91,15 @@
           <section>
             <h3>Identity (Layer 0)</h3>
             <p class="muted">
-              A persistent system prompt loaded into every conversation. Stored in
-              <code>~/.mempalace/identity.txt</code>. Tell the model who it is, who you
-              are, and how it should behave.
+              A persistent system prompt loaded into every conversation, no matter the wing.
+              Stored in <code>~/.mempalace/identity.txt</code>. Describe <i>who the AI is</i> and
+              <i>who you are</i> — not what you're working on. Project / topic context belongs in
+              the per-wing system prompt below.
             </p>
-            <textarea id="identity" rows="8" placeholder="I am Atlas, a personal AI assistant for Pete.
-Traits: warm, direct, remembers everything.
-Project: …"></textarea>
+            <textarea id="identity" rows="8"></textarea>
             <div class="row">
               <button id="save-identity" class="primary">Save identity</button>
+              <button id="reset-identity" class="ghost">Reset to default</button>
               <span id="identity-status" class="muted"></span>
             </div>
           </section>
