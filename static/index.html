@@ -273,6 +273,9 @@
             <button class="tab" data-tab="browser">Browser</button>
             <button class="tab" data-tab="taxonomy">Taxonomy</button>
             <button class="tab" data-tab="recent">Recent</button>
+            <button class="tab" data-tab="graph">Graph</button>
+            <button class="tab" data-tab="tunnels">Tunnels</button>
+            <button class="tab" data-tab="diary">Diary</button>
           </div>
           <button id="close-memory-modal" class="icon-btn">✕</button>
         </header>
@@ -304,6 +307,66 @@
 
           <div class="tab-pane" data-tab="recent" hidden>
             <div id="recent-content" class="muted">loading…</div>
+          </div>
+
+          <div class="tab-pane" data-tab="graph" hidden>
+            <p class="muted">
+              Temporal knowledge graph: typed facts about people, projects, and entities,
+              with validity windows. Add facts here or via the chat
+              (the model can call <code>kg_add</code> later — for now it's manual).
+            </p>
+            <div id="kg-stats" class="muted"></div>
+            <div class="kg-toolbar">
+              <input id="kg-entity" type="text" placeholder="entity name (e.g. Pete, dos-clone)" />
+              <input id="kg-asof" type="text" placeholder="as-of YYYY-MM-DD (optional)" />
+              <button id="kg-search" class="primary">query</button>
+              <button id="kg-timeline-btn" class="ghost">timeline</button>
+            </div>
+            <div id="kg-results"></div>
+
+            <h4 style="margin-top:18px">Add a fact</h4>
+            <div class="kg-add-form">
+              <input id="kg-subj" placeholder="subject (Pete)" />
+              <input id="kg-pred" placeholder="predicate (works_on)" />
+              <input id="kg-obj" placeholder="object (dos-clone)" />
+              <input id="kg-from" placeholder="valid from YYYY-MM-DD" />
+              <button id="kg-add-btn" class="primary">add</button>
+              <span id="kg-add-status" class="muted"></span>
+            </div>
+          </div>
+
+          <div class="tab-pane" data-tab="tunnels" hidden>
+            <p class="muted">
+              Tunnels are explicit links between rooms in different wings — useful when the
+              same idea spans projects (e.g. <code>dos-clone/auth ⇆ work/auth</code>).
+              Following a tunnel pulls the linked room's drawers into recall.
+            </p>
+            <div class="tunnel-add-form">
+              <input id="tunnel-wing-a" placeholder="wing A" />
+              <input id="tunnel-room-a" placeholder="room A" />
+              <span class="sep">⇆</span>
+              <input id="tunnel-wing-b" placeholder="wing B" />
+              <input id="tunnel-room-b" placeholder="room B" />
+              <input id="tunnel-kind" placeholder="kind (related)" value="related" />
+              <button id="tunnel-add-btn" class="primary">create tunnel</button>
+            </div>
+            <div id="tunnel-status" class="muted"></div>
+            <div id="tunnels-list"></div>
+          </div>
+
+          <div class="tab-pane" data-tab="diary" hidden>
+            <p class="muted">
+              The agent's own journal — a place for the AI to record what it noticed,
+              learned, or wants to remember. Separate from the chat memory.
+            </p>
+            <div class="diary-write">
+              <textarea id="diary-entry" rows="3" placeholder="Write an entry…"></textarea>
+              <input id="diary-topic" placeholder="topic (general)" value="general" />
+              <button id="diary-write-btn" class="primary">add entry</button>
+              <span id="diary-write-status" class="muted"></span>
+            </div>
+            <h4>Recent entries</h4>
+            <div id="diary-list"></div>
           </div>
         </div>
       </div>

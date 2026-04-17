@@ -1233,7 +1233,212 @@ function switchTab(name) {
   else if (name === "browser") {
     populateBrowserWingFilter();
     loadBrowser();
+  } else if (name === "graph") loadKgStats();
+  else if (name === "tunnels") loadTunnels();
+  else if (name === "diary") loadDiary();
+}
+
+/* ─── Knowledge Graph ──────────────────────────────────────────────────── */
+
+async function loadKgStats() {
+  const el = document.getElementById("kg-stats");
+  if (!el) return;
+  el.textContent = "loading…";
+  try {
+    const r = await fetch("/api/kg/stats");
+    const d = await r.json();
+    if (d.error) {
+      el.textContent = `KG: ${d.error}`;
+      return;
+    }
+    const parts = [];
+    if ("triples" in d) parts.push(`${d.triples} facts`);
+    if ("entities" in d) parts.push(`${d.entities} entities`);
+    if ("predicates" in d) parts.push(`${d.predicates} predicates`);
+    el.textContent = parts.length ? parts.join(" · ") : JSON.stringify(d);
+  } catch (e) {
+    el.textContent = `error: ${e.message}`;
   }
+}
+
+function renderKgFacts(facts, container) {
+  if (!facts || !facts.length) {
+    container.innerHTML = '<div class="muted">no facts</div>';
+    return;
+  }
+  container.innerHTML = "";
+  for (const f of facts) {
+    const subj = f.subject || f.subj || "?";
+    const pred = f.predicate || f.pred || "?";
+    const obj = f.object || f.obj || "?";
+    const vf = f.valid_from || "";
+    const vu = f.valid_until || f.ended || "";
+    const row = document.createElement("div");
+    row.className = "kg-fact";
+    row.innerHTML = `
+      <div>
+        <div class="triple">${escapeHtml(subj)} → <b>${escapeHtml(pred)}</b> → ${escapeHtml(obj)}</div>
+        <div class="when">${vf ? `from ${escapeHtml(vf)}` : ""}${vu ? ` · ended ${escapeHtml(vu)}` : ""}</div>
+      </div>
+      <div class="actions">
+        <button class="danger invalidate-btn" type="button">invalidate</button>
+      </div>
+    `;
+    row.querySelector(".invalidate-btn").addEventListener("click", async () => {
+      if (!confirm(`Mark this fact as no longer true?`)) return;
+      try {
+        const r = await fetch("/api/kg/invalidate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject: subj, predicate: pred, object: obj }),
+        });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || "failed");
+        setStatus(`invalidated`, "warn");
+        document.getElementById("kg-search").click();
+      } catch (e) {
+        setStatus(`invalidate failed: ${e.message}`, "err");
+      }
+    });
+    container.appendChild(row);
+  }
+}
+
+document.addEventListener("click", async (e) => {
+  if (e.target.id === "kg-search") {
+    const entity = document.getElementById("kg-entity").value.trim();
+    const asof = document.getElementById("kg-asof").value.trim();
+    const out = document.getElementById("kg-results");
+    if (!entity) {
+      out.innerHTML = '<div class="muted">enter an entity name first</div>';
+      return;
+    }
+    out.innerHTML = '<div class="muted">querying…</div>';
+    try {
+      const params = new URLSearchParams({ entity });
+      if (asof) params.set("as_of", asof);
+      const r = await fetch(`/api/kg/query?${params.toString()}`);
+      const d = await r.json();
+      if (d.error) {
+        out.innerHTML = `<div class="muted">${escapeHtml(d.error)}</div>`;
+        return;
+      }
+      renderKgFacts(d.facts || [], out);
+    } catch (err) {
+      out.innerHTML = `<div class="muted">error: ${escapeHtml(err.message)}</div>`;
+    }
+  } else if (e.target.id === "kg-timeline-btn") {
+    const entity = document.getElementById("kg-entity").value.trim();
+    const out = document.getElementById("kg-results");
+    out.innerHTML = '<div class="muted">loading timeline…</div>';
+    try {
+      const params = new URLSearchParams();
+      if (entity) params.set("entity", entity);
+      const r = await fetch(`/api/kg/timeline?${params.toString()}`);
+      const d = await r.json();
+      renderKgFacts(d.timeline || [], out);
+    } catch (err) {
+      out.innerHTML = `<div class="muted">error: ${escapeHtml(err.message)}</div>`;
+    }
+  } else if (e.target.id === "kg-add-btn") {
+    const subj = document.getElementById("kg-subj").value.trim();
+    const pred = document.getElementById("kg-pred").value.trim();
+    const obj = document.getElementById("kg-obj").value.trim();
+    const vf = document.getElementById("kg-from").value.trim();
+    const status = document.getElementById("kg-add-status");
+    if (!subj || !pred || !obj) {
+      status.textContent = "subject, predicate, and object are required";
+      return;
+    }
+    status.textContent = "adding…";
+    try {
+      const r = await fetch("/api/kg/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: subj,
+          predicate: pred,
+          object: obj,
+          valid_from: vf || null,
+        }),
+      });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error || "failed");
+      status.textContent = `added: ${d.fact}`;
+      ["kg-subj", "kg-pred", "kg-obj", "kg-from"].forEach(
+        (i) => (document.getElementById(i).value = ""),
+      );
+      loadKgStats();
+    } catch (err) {
+      status.textContent = `error: ${err.message}`;
+    }
+  } else if (e.target.id === "tunnel-add-btn") {
+    setStatus("tunnel create not yet wired (Pack D)", "warn");
+  } else if (e.target.id === "diary-write-btn") {
+    const entry = document.getElementById("diary-entry").value.trim();
+    const topic =
+      document.getElementById("diary-topic").value.trim() || "general";
+    const status = document.getElementById("diary-write-status");
+    if (!entry) {
+      status.textContent = "write something first";
+      return;
+    }
+    status.textContent = "saving…";
+    try {
+      const r = await fetch("/api/diary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entry, topic }),
+      });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.error || "failed");
+      status.textContent = `saved`;
+      document.getElementById("diary-entry").value = "";
+      loadDiary();
+    } catch (err) {
+      status.textContent = `error: ${err.message}`;
+    }
+  }
+});
+
+/* ─── Diary ────────────────────────────────────────────────────────────── */
+
+async function loadDiary() {
+  const el = document.getElementById("diary-list");
+  if (!el) return;
+  el.innerHTML = '<div class="muted">loading…</div>';
+  try {
+    const r = await fetch("/api/diary?last_n=20");
+    const d = await r.json();
+    const entries = d.entries || d.diary || [];
+    if (!entries.length) {
+      el.innerHTML = '<div class="muted">No diary entries yet.</div>';
+      return;
+    }
+    el.innerHTML = "";
+    for (const e of entries) {
+      const row = document.createElement("div");
+      row.className = "diary-row";
+      const when = e.timestamp || e.filed_at || "";
+      const text = e.entry || e.content || "";
+      const topic = e.topic ? ` · ${e.topic}` : "";
+      row.innerHTML = `
+        <div class="when">${fmtTime(when)}${escapeHtml(topic)}</div>
+        <div class="entry">${escapeHtml(text)}</div>
+      `;
+      el.appendChild(row);
+    }
+  } catch (err) {
+    el.innerHTML = `<div class="muted">error: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+/* ─── Tunnels (placeholder until Pack D backend lands) ─────────────────── */
+
+async function loadTunnels() {
+  const el = document.getElementById("tunnels-list");
+  if (!el) return;
+  el.innerHTML = '<div class="muted">tunnels backend wired in Pack D</div>';
 }
 
 document.querySelectorAll(".tab").forEach((t) => {

@@ -22,8 +22,17 @@ from mempalace.mcp_server import (
     tool_add_drawer,
     tool_check_duplicate,
     tool_delete_drawer,
+    tool_diary_read,
+    tool_diary_write,
+    tool_get_aaak_spec,
     tool_get_drawer,
+    tool_kg_add,
+    tool_kg_invalidate,
+    tool_kg_query,
+    tool_kg_stats,
+    tool_kg_timeline,
     tool_list_drawers,
+    tool_reconnect,
     tool_update_drawer,
 )
 from mempalace.palace import get_collection
@@ -84,6 +93,27 @@ class DrawerUpdate(BaseModel):
 class DupeCheckBody(BaseModel):
     content: str
     threshold: float = 0.9
+
+
+class KgAddBody(BaseModel):
+    subject: str
+    predicate: str
+    object: str
+    valid_from: Optional[str] = None
+    source_closet: Optional[str] = None
+
+
+class KgInvalidateBody(BaseModel):
+    subject: str
+    predicate: str
+    object: str
+    ended: Optional[str] = None
+
+
+class DiaryWriteBody(BaseModel):
+    agent_name: str = "ollama-mempalace"
+    entry: str
+    topic: str = "general"
 
 
 def _safe_collection():
@@ -410,6 +440,63 @@ async def delete_drawer(drawer_id: str):
 @app.post("/api/check-duplicate")
 async def check_dupe(body: DupeCheckBody):
     return tool_check_duplicate(body.content, body.threshold)
+
+
+@app.get("/api/kg/stats")
+async def kg_stats_endpoint():
+    return tool_kg_stats()
+
+
+@app.get("/api/kg/query")
+async def kg_query_endpoint(
+    entity: str,
+    as_of: Optional[str] = None,
+    direction: str = "both",
+):
+    return tool_kg_query(entity, as_of=as_of, direction=direction)
+
+
+@app.get("/api/kg/timeline")
+async def kg_timeline_endpoint(entity: Optional[str] = None):
+    return tool_kg_timeline(entity=entity)
+
+
+@app.post("/api/kg/add")
+async def kg_add_endpoint(body: KgAddBody):
+    return tool_kg_add(
+        body.subject,
+        body.predicate,
+        body.object,
+        valid_from=body.valid_from,
+        source_closet=body.source_closet,
+    )
+
+
+@app.post("/api/kg/invalidate")
+async def kg_invalidate_endpoint(body: KgInvalidateBody):
+    return tool_kg_invalidate(
+        body.subject, body.predicate, body.object, ended=body.ended
+    )
+
+
+@app.get("/api/diary")
+async def diary_read_endpoint(agent_name: str = "ollama-mempalace", last_n: int = 20):
+    return tool_diary_read(agent_name, last_n=last_n)
+
+
+@app.post("/api/diary")
+async def diary_write_endpoint(body: DiaryWriteBody):
+    return tool_diary_write(body.agent_name, body.entry, topic=body.topic)
+
+
+@app.get("/api/aaak-spec")
+async def aaak_spec_endpoint():
+    return tool_get_aaak_spec()
+
+
+@app.post("/api/reconnect")
+async def reconnect_endpoint():
+    return tool_reconnect()
 
 
 @app.get("/api/recent")
