@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ollama-mempalace</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header>
+      <h1>ollama · mempalace</h1>
+      <div class="controls">
+        <label>
+          model
+          <select id="model"></select>
+        </label>
+        <label>
+          wing
+          <select id="wing"></select>
+        </label>
+        <label>
+          room
+          <input id="room" type="text" value="general" />
+        </label>
+        <button id="wing-new" title="New wing">+ wing</button>
+        <button id="wing-rename" title="Rename current wing">rename</button>
+        <button id="wing-delete" class="danger" title="Delete current wing">delete</button>
+        <label class="toggle">
+          <input id="use-memory" type="checkbox" checked />
+          recall
+        </label>
+        <label class="toggle">
+          <input id="save-memory" type="checkbox" checked />
+          save
+        </label>
+        <button id="new-chat">new chat</button>
+      </div>
+    </header>
+    <main>
+      <section id="chat-pane">
+        <div id="messages"></div>
+        <form id="composer">
+          <textarea
+            id="input"
+            placeholder="ask anything — recall and save are on by default"
+            rows="3"
+          ></textarea>
+          <button id="send" type="submit">send</button>
+        </form>
+      </section>
+      <aside id="memory-pane">
+        <h2>memory hits</h2>
+        <div id="hits"></div>
+      </aside>
+    </main>
+    <div id="status"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

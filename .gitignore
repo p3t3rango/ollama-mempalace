@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.env
+.env.local
+
+# MemPalace source clone (reference only — install via pip)
+mempalace-src/
+
+# Editor
+.vscode/
+.idea/
