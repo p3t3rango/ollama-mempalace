@@ -70,7 +70,6 @@ const els = {
   openSettings: $("open-settings"),
   sessions: $("sessions"),
   topbarWing: $("topbar-wing"),
-  topbarRoom: $("topbar-room"),
   topbarWingNew: $("topbar-wing-new"),
   palaceLabel: $("palace-label"),
   emptyState: $("empty-state"),
@@ -403,7 +402,6 @@ function setCurrentWing(name) {
 
 function setCurrentRoom(name) {
   els.room.value = name;
-  els.topbarRoom.value = name;
   state.prefs.room = name;
   const s = getActiveSession();
   if (s) s.room = name;
@@ -744,9 +742,6 @@ els.refreshWakeup.addEventListener("click", loadWakeup);
 els.wing.addEventListener("change", () => setCurrentWing(els.wing.value));
 els.topbarWing.addEventListener("change", () => setCurrentWing(els.topbarWing.value));
 els.room.addEventListener("change", () => setCurrentRoom(els.room.value || "general"));
-els.topbarRoom.addEventListener("change", () =>
-  setCurrentRoom(els.topbarRoom.value || "general"),
-);
 
 async function newWingFlow() {
   const name = prompt("New wing name");
@@ -783,7 +778,6 @@ els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
 
   await loadModels();
   await loadWings(state.prefs.wing);
-  els.topbarRoom.value = state.prefs.room || "general";
 
   ensureSession();
   renderMessages();
