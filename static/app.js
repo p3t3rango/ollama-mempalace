@@ -803,6 +803,7 @@ async function openSettings() {
   loadWingPromptForCurrent();
   loadWakeup();
   loadAttachments();
+  loadAaak();
 }
 
 /* ─── Attachments ─────────────────────────────────────────────────────── */
@@ -846,8 +847,73 @@ async function uploadAttachment(file) {
   }, 6000);
 }
 
+const TEXT_EXTENSIONS = new Set([
+  "txt", "md", "markdown", "json", "jsonl", "csv", "tsv", "yaml", "yml",
+  "py", "js", "jsx", "ts", "tsx", "html", "htm", "css", "scss", "less",
+  "rs", "go", "java", "c", "cpp", "h", "hpp", "rb", "php", "sh", "bash",
+  "zsh", "sql", "log", "conf", "ini", "toml", "xml", "tex", "rst", "vue",
+  "svelte", "lua", "r", "kt", "swift", "dart", "ex", "exs", "elm",
+]);
+
+function isLikelyText(file) {
+  const name = (file.name || "").toLowerCase();
+  const i = name.lastIndexOf(".");
+  if (i < 0) return false;
+  return TEXT_EXTENSIONS.has(name.slice(i + 1));
+}
+
+async function walkEntry(entry, out) {
+  if (!entry) return;
+  if (entry.isFile) {
+    return new Promise((resolve) => {
+      entry.file((file) => {
+        out.push(file);
+        resolve();
+      }, resolve);
+    });
+  }
+  if (entry.isDirectory) {
+    const reader = entry.createReader();
+    return new Promise((resolve) => {
+      const collected = [];
+      const readBatch = () => {
+        reader.readEntries(async (entries) => {
+          if (!entries.length) {
+            for (const e of collected) await walkEntry(e, out);
+            resolve();
+          } else {
+            collected.push(...entries);
+            readBatch();
+          }
+        }, resolve);
+      };
+      readBatch();
+    });
+  }
+}
+
+async function collectFromDataTransfer(dt) {
+  if (dt.items && dt.items.length && dt.items[0].webkitGetAsEntry) {
+    const all = [];
+    const promises = [];
+    for (const item of dt.items) {
+      const entry = item.webkitGetAsEntry();
+      promises.push(walkEntry(entry, all));
+    }
+    await Promise.all(promises);
+    return all;
+  }
+  return Array.from(dt.files || []);
+}
+
 async function uploadFiles(fileList) {
-  for (const f of fileList) {
+  const files = Array.from(fileList);
+  const text = files.filter(isLikelyText);
+  const skipped = files.length - text.length;
+  if (skipped) {
+    setStatus(`skipping ${skipped} non-text file(s)`, "warn");
+  }
+  for (const f of text) {
     await uploadAttachment(f);
   }
 }
@@ -924,12 +990,13 @@ window.addEventListener("dragover", (e) => {
   if (e.dataTransfer?.types?.includes("Files")) e.preventDefault();
 });
 window.addEventListener("drop", async (e) => {
-  if (!e.dataTransfer?.files?.length) return;
+  if (!e.dataTransfer) return;
   e.preventDefault();
   _dragDepth = 0;
   els.dragOverlay.hidden = true;
   els.chatArea.classList.remove("drag-over");
-  await uploadFiles(e.dataTransfer.files);
+  const files = await collectFromDataTransfer(e.dataTransfer);
+  if (files.length) await uploadFiles(files);
 });
 
 /* ─── Memory modal ────────────────────────────────────────────────────── */
@@ -1433,12 +1500,155 @@ async function loadDiary() {
   }
 }
 
-/* ─── Tunnels (placeholder until Pack D backend lands) ─────────────────── */
+/* ─── Tunnels ──────────────────────────────────────────────────────────── */
 
 async function loadTunnels() {
   const el = document.getElementById("tunnels-list");
   if (!el) return;
-  el.innerHTML = '<div class="muted">tunnels backend wired in Pack D</div>';
+  el.innerHTML = '<div class="muted">loading…</div>';
+  try {
+    const r = await fetch("/api/tunnels");
+    const d = await r.json();
+    const tunnels = Array.isArray(d) ? d : d.tunnels || d.results || [];
+    if (!tunnels.length) {
+      el.innerHTML =
+        '<div class="muted">No tunnels yet. Create one above to link two rooms across wings.</div>';
+      return;
+    }
+    el.innerHTML = "";
+    for (const t of tunnels) {
+      const row = document.createElement("div");
+      row.className = "tunnel-row";
+      const sw = t.source?.wing || t.source_wing || "?";
+      const sr = t.source?.room || t.source_room || "?";
+      const tw = t.target?.wing || t.target_wing || "?";
+      const tr = t.target?.room || t.target_room || "?";
+      const lbl = t.label || t.kind || "";
+      const id = t.id || t.tunnel_id || "";
+      row.innerHTML = `
+        <div>
+          <div>${escapeHtml(sw)}/${escapeHtml(sr)} ⇆ ${escapeHtml(tw)}/${escapeHtml(tr)}</div>
+          <div class="muted" style="font-size:10px">${escapeHtml(lbl)} · ${escapeHtml(id)}</div>
+        </div>
+        <button class="danger del-tunnel" type="button">delete</button>
+      `;
+      row.querySelector(".del-tunnel").addEventListener("click", async () => {
+        if (!confirm("Delete this tunnel?")) return;
+        try {
+          const dr = await fetch(`/api/tunnels/${encodeURIComponent(id)}`, {
+            method: "DELETE",
+          });
+          const dd = await dr.json();
+          if (dd.error) throw new Error(dd.error);
+          loadTunnels();
+        } catch (e) {
+          alert(`delete failed: ${e.message}`);
+        }
+      });
+      el.appendChild(row);
+    }
+  } catch (e) {
+    el.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+document.addEventListener("click", async (e) => {
+  if (e.target.id === "tunnel-add-btn") {
+    const sw = document.getElementById("tunnel-wing-a").value.trim();
+    const sr = document.getElementById("tunnel-room-a").value.trim();
+    const tw = document.getElementById("tunnel-wing-b").value.trim();
+    const tr = document.getElementById("tunnel-room-b").value.trim();
+    const lbl = document.getElementById("tunnel-kind").value.trim();
+    const status = document.getElementById("tunnel-status");
+    if (!sw || !sr || !tw || !tr) {
+      status.textContent = "all four wing/room fields are required";
+      return;
+    }
+    status.textContent = "creating…";
+    try {
+      const r = await fetch("/api/tunnels", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_wing: sw,
+          source_room: sr,
+          target_wing: tw,
+          target_room: tr,
+          label: lbl || "related",
+        }),
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      status.textContent = "created";
+      ["tunnel-wing-a", "tunnel-room-a", "tunnel-wing-b", "tunnel-room-b"].forEach(
+        (i) => (document.getElementById(i).value = ""),
+      );
+      loadTunnels();
+    } catch (err) {
+      status.textContent = `error: ${err.message}`;
+    }
+  } else if (e.target.id === "reconnect-btn") {
+    e.target.disabled = true;
+    e.target.textContent = "reconnecting…";
+    try {
+      const r = await fetch("/api/reconnect", { method: "POST" });
+      const d = await r.json();
+      setStatus(
+        d.success ? `reconnected (${d.drawers} drawers)` : `failed: ${d.error || d.message}`,
+        d.success ? "ok" : "err",
+      );
+      loadStats();
+    } catch (err) {
+      setStatus(`reconnect failed: ${err.message}`, "err");
+    } finally {
+      e.target.disabled = false;
+      e.target.textContent = "reconnect to palace";
+    }
+  } else if (e.target.id === "import-convos-btn") {
+    const wing = state.prefs.wing || "personal";
+    const path = document.getElementById("import-convos-path").value.trim();
+    const status = document.getElementById("import-convos-status");
+    if (!path) {
+      status.textContent = "enter a folder path first";
+      return;
+    }
+    status.textContent = "importing… (this can take minutes)";
+    e.target.disabled = true;
+    try {
+      const r = await fetch(
+        `/api/wings/${encodeURIComponent(wing)}/import-convos`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path }),
+        },
+      );
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+      status.textContent = `imported into ${wing}`;
+      loadAttachments();
+      loadWings(wing);
+    } catch (err) {
+      status.textContent = `error: ${err.message}`;
+    } finally {
+      e.target.disabled = false;
+    }
+  }
+});
+
+/* ─── AAAK viewer ──────────────────────────────────────────────────────── */
+
+async function loadAaak() {
+  const el = document.getElementById("aaak-spec-text");
+  if (!el) return;
+  el.textContent = "loading…";
+  try {
+    const r = await fetch("/api/aaak-spec");
+    const d = await r.json();
+    el.textContent = d.aaak_spec || JSON.stringify(d, null, 2);
+  } catch (e) {
+    el.textContent = `error: ${e.message}`;
+  }
 }
 
 document.querySelectorAll(".tab").forEach((t) => {

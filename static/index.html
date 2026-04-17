@@ -211,9 +211,23 @@
                 <span class="caption">
                   Files attached to this wing. Each file is chunked and filed as drawers in
                   the <code>attachments</code> room, so memory recall pulls from them in every
-                  chat in this wing. Drop files on the chat area or click <code>+</code> in the composer.
+                  chat in this wing. Drop files (or whole folders) on the chat area, or
+                  click <code>+</code> in the composer. Non-text files are skipped.
                 </span>
                 <div id="attachments-list"></div>
+              </label>
+              <label>
+                Import past chats from a folder
+                <span class="caption">
+                  Point this at a directory of conversation exports (Claude Code JSONL,
+                  ChatGPT JSON, Slack exports, plain text). MemPalace will mine each
+                  exchange and file it into the current wing.
+                </span>
+                <div class="row">
+                  <input id="import-convos-path" type="text" placeholder="e.g. ~/Downloads/claude-export" style="flex:1" />
+                  <button id="import-convos-btn" class="primary" type="button">import</button>
+                </div>
+                <span id="import-convos-status" class="muted"></span>
               </label>
             </div>
           </section>
@@ -251,6 +265,16 @@
           </section>
 
           <section>
+            <h3>AAAK compression spec</h3>
+            <span class="caption">
+              MemPalace's compressed memory dialect. Models can read and write AAAK
+              natively without decoding. Useful for high-density recall in tight token
+              budgets.
+            </span>
+            <pre id="aaak-spec-text" class="wakeup">loading…</pre>
+          </section>
+
+          <section>
             <h3>Wings &amp; rooms — how to think about them</h3>
             <ul class="muted">
               <li><b>Wing</b> = a top-level domain. A project, a person, or a big topic. Examples: <code>personal</code>, <code>dos-clone</code>, <code>health</code>, <code>work</code>.</li>
@@ -282,6 +306,10 @@
         <div class="settings-body">
           <div class="tab-pane" data-tab="stats">
             <div id="stats-content" class="muted">loading…</div>
+            <div class="row" style="margin-top:14px">
+              <button id="reconnect-btn" class="ghost" type="button">reconnect to palace</button>
+              <span class="muted">use after editing the palace via the mempalace CLI</span>
+            </div>
           </div>
 
           <div class="tab-pane" data-tab="browser" hidden>

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -21,9 +23,12 @@ from mempalace.layers import MemoryStack
 from mempalace.mcp_server import (
     tool_add_drawer,
     tool_check_duplicate,
+    tool_create_tunnel,
     tool_delete_drawer,
+    tool_delete_tunnel,
     tool_diary_read,
     tool_diary_write,
+    tool_follow_tunnels,
     tool_get_aaak_spec,
     tool_get_drawer,
     tool_kg_add,
@@ -32,6 +37,7 @@ from mempalace.mcp_server import (
     tool_kg_stats,
     tool_kg_timeline,
     tool_list_drawers,
+    tool_list_tunnels,
     tool_reconnect,
     tool_update_drawer,
 )
@@ -41,10 +47,25 @@ from mempalace.searcher import search_memories
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 DEFAULT_ROOM = "general"
 DEFAULT_WING = "personal"
-FACTS_ROOM = "auto_facts"
+FACTS_ROOM = "hall_facts"
 ATTACH_ROOM = "attachments"
 MAX_ATTACH_BYTES = 5 * 1024 * 1024  # 5 MB
 CHUNK_TARGET_CHARS = 1500
+
+# Map general_extractor's memory_type → MemPalace hall room name.
+# Anything missing falls back to "hall_facts".
+HALL_FOR_MEMORY_TYPE = {
+    "fact": "hall_facts",
+    "preference": "hall_preferences",
+    "decision": "hall_decisions",
+    "discovery": "hall_discoveries",
+    "event": "hall_events",
+    "advice": "hall_advice",
+    "warning": "hall_warnings",
+    "instruction": "hall_instructions",
+    "emotion": "hall_emotions",
+    "identity": "hall_identity",
+}
 
 config = MempalaceConfig()
 config.init()
@@ -114,6 +135,19 @@ class DiaryWriteBody(BaseModel):
     agent_name: str = "ollama-mempalace"
     entry: str
     topic: str = "general"
+
+
+class TunnelCreateBody(BaseModel):
+    source_wing: str
+    source_room: str
+    target_wing: str
+    target_room: str
+    label: str = ""
+
+
+class ConvoImportBody(BaseModel):
+    path: str
+    limit: Optional[int] = None
 
 
 def _safe_collection():
@@ -499,6 +533,102 @@ async def reconnect_endpoint():
     return tool_reconnect()
 
 
+@app.post("/api/tunnels")
+async def create_tunnel_endpoint(body: TunnelCreateBody):
+    return tool_create_tunnel(
+        body.source_wing,
+        body.source_room,
+        body.target_wing,
+        body.target_room,
+        label=body.label,
+    )
+
+
+@app.get("/api/tunnels")
+async def list_tunnels_endpoint(wing: Optional[str] = None):
+    return tool_list_tunnels(wing=wing)
+
+
+@app.delete("/api/tunnels/{tunnel_id}")
+async def delete_tunnel_endpoint(tunnel_id: str):
+    return tool_delete_tunnel(tunnel_id)
+
+
+@app.get("/api/tunnels/follow")
+async def follow_tunnels_endpoint(wing: str, room: str):
+    return tool_follow_tunnels(wing, room)
+
+
+@app.get("/api/recall")
+async def l2_recall_endpoint(
+    wing: Optional[str] = None,
+    room: Optional[str] = None,
+    n: int = 10,
+):
+    """Layer 2 — on-demand retrieval scoped to wing/room."""
+    try:
+        stack = MemoryStack(palace_path=PALACE_PATH)
+        text = stack.recall(wing=wing, room=room, n_results=n)
+        return {
+            "text": text,
+            "tokens_estimate": len(text) // 4,
+            "wing": wing,
+            "room": room,
+        }
+    except Exception as e:
+        return {"text": "", "tokens_estimate": 0, "error": str(e)}
+
+
+@app.post("/api/wings/{wing}/import-convos")
+async def import_convos(wing: str, body: ConvoImportBody):
+    """Import a folder of conversation exports into the wing.
+
+    Shells out to the mempalace CLI which handles all the format-specific
+    parsing (Claude Code JSONL, ChatGPT JSON, Slack exports, plain text).
+    """
+    try:
+        wing = sanitize_name(wing, "wing")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    convo_dir = os.path.expanduser(body.path)
+    if not os.path.isdir(convo_dir):
+        raise HTTPException(400, f"Not a directory: {convo_dir}")
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "mempalace",
+        "mine",
+        convo_dir,
+        "--mode",
+        "convos",
+        "--wing",
+        wing,
+    ]
+    if body.limit:
+        cmd.extend(["--limit", str(body.limit)])
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=600
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "Mining timed out (10 min)")
+
+    if result.returncode != 0:
+        raise HTTPException(
+            500,
+            f"mempalace mine failed (rc={result.returncode}): "
+            + (result.stderr or result.stdout)[-1500:],
+        )
+
+    return {
+        "ok": True,
+        "wing": wing,
+        "stdout_tail": result.stdout[-2000:],
+    }
+
+
 @app.get("/api/recent")
 async def recent_activity(limit: int = 20):
     col = _safe_collection()
@@ -629,10 +759,11 @@ def _run_auto_extract(transcript: str, wing: str) -> list[dict]:
         content = (m.get("content") or "").strip()
         if not content:
             continue
-        mem_type = m.get("memory_type", "fact")
-        room = sanitize_name(f"facts_{mem_type}", "room") if re.match(
-            r"^[a-z_]+$", mem_type or ""
-        ) else FACTS_ROOM
+        mem_type = (m.get("memory_type") or "fact").strip().lower()
+        room = HALL_FOR_MEMORY_TYPE.get(mem_type)
+        if not room:
+            candidate = f"hall_{mem_type}"
+            room = candidate if re.match(r"^hall_[a-z_]+$", candidate) else FACTS_ROOM
         try:
             r = tool_add_drawer(
                 wing=wing,
