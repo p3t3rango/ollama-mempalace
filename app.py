@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -15,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from mempalace.config import MempalaceConfig, sanitize_name
+from mempalace.general_extractor import extract_memories
+from mempalace.layers import MemoryStack
 from mempalace.mcp_server import tool_add_drawer
 from mempalace.palace import get_collection
 from mempalace.searcher import search_memories
@@ -22,11 +25,14 @@ from mempalace.searcher import search_memories
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 DEFAULT_ROOM = "general"
 DEFAULT_WING = "personal"
+FACTS_ROOM = "auto_facts"
 
 config = MempalaceConfig()
 config.init()
 PALACE_PATH = config.palace_path
 Path(PALACE_PATH).mkdir(parents=True, exist_ok=True)
+
+IDENTITY_PATH = Path(os.path.expanduser("~/.mempalace/identity.txt"))
 
 app = FastAPI(title="ollama-mempalace")
 STATIC_DIR = Path(__file__).parent / "static"
@@ -44,11 +50,19 @@ class ChatRequest(BaseModel):
     messages: list[Message]
     use_memory: bool = True
     save_to_memory: bool = True
+    auto_extract: bool = True
+    use_identity: bool = True
+    system_prompt: Optional[str] = None
+    session_id: Optional[str] = None
     memory_limit: int = Field(default=5, ge=1, le=20)
 
 
 class WingRenameBody(BaseModel):
     new_name: str
+
+
+class IdentityBody(BaseModel):
+    text: str
 
 
 def _safe_collection():
@@ -148,6 +162,35 @@ async def debug_search(
     )
 
 
+@app.get("/api/identity")
+async def get_identity():
+    text = ""
+    if IDENTITY_PATH.exists():
+        text = IDENTITY_PATH.read_text(encoding="utf-8")
+    return {"text": text, "path": str(IDENTITY_PATH)}
+
+
+@app.put("/api/identity")
+async def put_identity(body: IdentityBody):
+    IDENTITY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    IDENTITY_PATH.write_text(body.text, encoding="utf-8")
+    try:
+        IDENTITY_PATH.chmod(0o600)
+    except OSError:
+        pass
+    return {"ok": True, "bytes": len(body.text.encode("utf-8"))}
+
+
+@app.get("/api/wakeup")
+async def get_wakeup(wing: Optional[str] = None):
+    try:
+        stack = MemoryStack(palace_path=PALACE_PATH)
+        text = stack.wake_up(wing=wing)
+        return {"text": text, "tokens_estimate": len(text) // 4, "wing": wing}
+    except Exception as e:
+        return {"text": "", "tokens_estimate": 0, "wing": wing, "error": str(e)}
+
+
 def _format_memory_block(hits: list[dict]) -> str:
     if not hits:
         return ""
@@ -163,6 +206,40 @@ def _format_memory_block(hits: list[dict]) -> str:
         parts.append(f"\n[memory {i} | {wing}/{room} | similarity={sim}]\n{text}")
     parts.append("\n--- end memories ---")
     return "\n".join(parts)
+
+
+def _run_auto_extract(transcript: str, wing: str) -> list[dict]:
+    """Extract facts from a transcript and file each as its own drawer.
+
+    Default 0.3 confidence misses single-paragraph user turns; 0.15 catches
+    typical "I prefer..." / "I decided..." statements without becoming noisy.
+    """
+    try:
+        memories = extract_memories(transcript, min_confidence=0.15)
+    except Exception:
+        return []
+    saved: list[dict] = []
+    for m in memories:
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        mem_type = m.get("memory_type", "fact")
+        room = sanitize_name(f"facts_{mem_type}", "room") if re.match(
+            r"^[a-z_]+$", mem_type or ""
+        ) else FACTS_ROOM
+        try:
+            r = tool_add_drawer(
+                wing=wing,
+                room=room,
+                content=content,
+                source_file=f"extract://{datetime.now().isoformat()}",
+                added_by="auto-extract",
+            )
+            if r.get("success"):
+                saved.append({"room": room, "type": mem_type, "preview": content[:120]})
+        except Exception:
+            continue
+    return saved
 
 
 @app.post("/api/chat")
@@ -189,9 +266,20 @@ async def chat(req: ChatRequest):
             memory_hits = []
 
     out_messages: list[dict] = []
+
+    # System prompts compose top-down: identity first, per-wing prompt next, memory last.
+    if req.use_identity and IDENTITY_PATH.exists():
+        identity = IDENTITY_PATH.read_text(encoding="utf-8").strip()
+        if identity:
+            out_messages.append({"role": "system", "content": identity})
+
+    if req.system_prompt and req.system_prompt.strip():
+        out_messages.append({"role": "system", "content": req.system_prompt.strip()})
+
     memory_block = _format_memory_block(memory_hits)
     if memory_block:
         out_messages.append({"role": "system", "content": memory_block})
+
     for m in req.messages:
         out_messages.append({"role": m.role, "content": m.content})
 
@@ -245,6 +333,8 @@ async def chat(req: ChatRequest):
 
         saved_id: Optional[str] = None
         save_error: Optional[str] = None
+        extracted_facts: list[dict] = []
+
         if req.save_to_memory and last_user and full_response.strip():
             transcript = (
                 f"User: {last_user.content}\n\nAssistant: {full_response.strip()}"
@@ -254,7 +344,10 @@ async def chat(req: ChatRequest):
                     wing=wing,
                     room=room,
                     content=transcript,
-                    source_file=f"chat://{req.model}/{datetime.now().isoformat()}",
+                    source_file=(
+                        f"chat://{req.model}/{req.session_id or 'no-session'}"
+                        f"/{datetime.now().isoformat()}"
+                    ),
                     added_by="ollama-mempalace",
                 )
                 if result.get("success"):
@@ -264,6 +357,9 @@ async def chat(req: ChatRequest):
             except Exception as e:
                 save_error = str(e)
 
+            if req.auto_extract:
+                extracted_facts = _run_auto_extract(transcript, wing)
+
         yield (
             "data: "
             + json.dumps(
@@ -271,6 +367,7 @@ async def chat(req: ChatRequest):
                     "type": "done",
                     "saved_drawer_id": saved_id,
                     "save_error": save_error,
+                    "extracted_facts": extracted_facts,
                 }
             )
             + "\n\n"

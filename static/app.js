@@ -1,55 +1,108 @@
 const $ = (id) => document.getElementById(id);
 
+const SESSIONS_KEY = "ollama-mempalace.sessions.v1";
+const ACTIVE_KEY = "ollama-mempalace.activeSession";
+const PREFS_KEY = "ollama-mempalace.prefs.v1";
+const WING_PROMPT_KEY = "ollama-mempalace.wing_prompts.v1";
+
+function uuid() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function now() {
+  return Date.now();
+}
+
+function loadJSON(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJSON(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
 const state = {
-  messages: [],
+  sessions: loadJSON(SESSIONS_KEY, []),
+  activeId: localStorage.getItem(ACTIVE_KEY) || null,
+  prefs: loadJSON(PREFS_KEY, {
+    model: "",
+    wing: "personal",
+    room: "general",
+    recall: true,
+    save: true,
+    extract: true,
+    identity: true,
+    showMemory: false,
+  }),
+  wingPrompts: loadJSON(WING_PROMPT_KEY, {}),
   wings: [],
   models: [],
 };
 
 const els = {
-  model: $("model"),
-  wing: $("wing"),
-  room: $("room"),
-  useMemory: $("use-memory"),
-  saveMemory: $("save-memory"),
+  sidebar: $("sidebar"),
+  toggleSidebar: $("toggle-sidebar"),
+  showSidebar: $("show-sidebar"),
+  newChat: $("new-chat"),
+  openSettings: $("open-settings"),
+  sessions: $("sessions"),
+  sessionTitle: $("session-title"),
+  palaceLabel: $("palace-label"),
+  emptyState: $("empty-state"),
   messages: $("messages"),
   input: $("input"),
   composer: $("composer"),
   send: $("send"),
+  composerPlus: $("composer-plus"),
+  composerRecall: $("composer-recall"),
+  model: $("model"),
+  toggleMemoryPane: $("toggle-memory-pane"),
+  memoryPane: $("memory-pane"),
+  closeMemory: $("close-memory"),
   hits: $("hits"),
   status: $("status"),
-  newChat: $("new-chat"),
-  newWing: $("wing-new"),
-  renameWing: $("wing-rename"),
-  deleteWing: $("wing-delete"),
+  settingsOverlay: $("settings-overlay"),
+  closeSettings: $("close-settings"),
+  identity: $("identity"),
+  saveIdentity: $("save-identity"),
+  identityStatus: $("identity-status"),
+  wing: $("wing"),
+  wingNew: $("wing-new"),
+  wingRename: $("wing-rename"),
+  wingDelete: $("wing-delete"),
+  room: $("room"),
+  wingPrompt: $("wing-prompt"),
+  tRecall: $("t-recall"),
+  tSave: $("t-save"),
+  tExtract: $("t-extract"),
+  tIdentity: $("t-identity"),
+  refreshWakeup: $("refresh-wakeup"),
+  wakeupTokens: $("wakeup-tokens"),
+  wakeupText: $("wakeup-text"),
 };
 
-const STORE_KEY = "ollama-mempalace.prefs";
-
 function savePrefs() {
-  localStorage.setItem(
-    STORE_KEY,
-    JSON.stringify({
-      model: els.model.value,
-      wing: els.wing.value,
-      room: els.room.value,
-      useMemory: els.useMemory.checked,
-      saveMemory: els.saveMemory.checked,
-    }),
-  );
+  state.prefs.model = els.model.value;
+  state.prefs.wing = els.wing.value || state.prefs.wing;
+  state.prefs.room = els.room.value || state.prefs.room;
+  state.prefs.recall = els.tRecall.checked;
+  state.prefs.save = els.tSave.checked;
+  state.prefs.extract = els.tExtract.checked;
+  state.prefs.identity = els.tIdentity.checked;
+  saveJSON(PREFS_KEY, state.prefs);
+  syncRecallButton();
 }
 
-function loadPrefs() {
-  try {
-    return JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function setStatus(text, kind = "") {
-  els.status.textContent = text;
-  els.status.className = kind;
+function syncRecallButton() {
+  els.composerRecall.classList.toggle("on", state.prefs.recall);
 }
 
 function escapeHtml(s) {
@@ -59,29 +112,178 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
+function setStatus(text, kind = "") {
+  els.status.textContent = text;
+  els.status.className = `${kind} show`;
+  clearTimeout(setStatus._t);
+  setStatus._t = setTimeout(() => els.status.classList.remove("show"), 4000);
+}
+
+/* ─── Sessions ─────────────────────────────────────────────────────────── */
+
+function getActiveSession() {
+  return state.sessions.find((s) => s.id === state.activeId);
+}
+
+function createSession() {
+  const s = {
+    id: uuid(),
+    title: "New chat",
+    wing: state.prefs.wing || "personal",
+    room: state.prefs.room || "general",
+    model: state.prefs.model || (state.models[0] ?? ""),
+    createdAt: now(),
+    updatedAt: now(),
+    messages: [],
+  };
+  state.sessions.unshift(s);
+  state.activeId = s.id;
+  localStorage.setItem(ACTIVE_KEY, s.id);
+  saveJSON(SESSIONS_KEY, state.sessions);
+  return s;
+}
+
+function deleteSession(id) {
+  const idx = state.sessions.findIndex((s) => s.id === id);
+  if (idx < 0) return;
+  state.sessions.splice(idx, 1);
+  if (state.activeId === id) {
+    state.activeId = state.sessions[0]?.id || null;
+    localStorage.setItem(ACTIVE_KEY, state.activeId || "");
+  }
+  saveJSON(SESSIONS_KEY, state.sessions);
+}
+
+function setActive(id) {
+  state.activeId = id;
+  localStorage.setItem(ACTIVE_KEY, id);
+  const s = getActiveSession();
+  if (s) {
+    if (s.model && state.models.includes(s.model)) els.model.value = s.model;
+    if (s.wing) {
+      ensureWingOption(s.wing);
+      els.wing.value = s.wing;
+    }
+    if (s.room) els.room.value = s.room;
+    state.prefs.wing = s.wing;
+    state.prefs.room = s.room;
+    state.prefs.model = s.model;
+    saveJSON(PREFS_KEY, state.prefs);
+    loadWingPromptForCurrent();
+  }
+  renderSessions();
+  renderMessages();
+}
+
+function bucketSessionsByDate() {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const week = today - 6 * 86400000;
+  const buckets = { Today: [], "This Week": [], Older: [] };
+  for (const s of state.sessions) {
+    if (s.updatedAt >= today) buckets.Today.push(s);
+    else if (s.updatedAt >= week) buckets["This Week"].push(s);
+    else buckets.Older.push(s);
+  }
+  return buckets;
+}
+
+function renderSessions() {
+  els.sessions.innerHTML = "";
+  const buckets = bucketSessionsByDate();
+  for (const [label, group] of Object.entries(buckets)) {
+    if (!group.length) continue;
+    const groupEl = document.createElement("div");
+    groupEl.className = "sessions-group";
+    groupEl.innerHTML = `<div class="sessions-group-label">${label}</div>`;
+    for (const s of group) {
+      const item = document.createElement("div");
+      item.className = `session-item${s.id === state.activeId ? " active" : ""}`;
+      item.innerHTML = `
+        <span class="title">${escapeHtml(s.title || "Untitled")}</span>
+        <span class="actions">
+          <button class="session-btn rename" title="Rename">✎</button>
+          <button class="session-btn delete" title="Delete">✕</button>
+        </span>
+      `;
+      item.addEventListener("click", (e) => {
+        if (e.target.classList.contains("session-btn")) return;
+        setActive(s.id);
+      });
+      item.querySelector(".rename").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const next = prompt("Rename chat:", s.title);
+        if (!next) return;
+        s.title = next.trim();
+        s.updatedAt = now();
+        saveJSON(SESSIONS_KEY, state.sessions);
+        renderSessions();
+      });
+      item.querySelector(".delete").addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete chat "${s.title}"? Memory drawers stay in MemPalace.`))
+          return;
+        deleteSession(s.id);
+        renderSessions();
+        renderMessages();
+        if (!state.sessions.length) ensureSession();
+      });
+      groupEl.appendChild(item);
+    }
+    els.sessions.appendChild(groupEl);
+  }
+}
+
+function ensureSession() {
+  if (!getActiveSession()) {
+    if (state.sessions.length) {
+      state.activeId = state.sessions[0].id;
+      localStorage.setItem(ACTIVE_KEY, state.activeId);
+    } else {
+      createSession();
+    }
+  }
+  renderSessions();
+}
+
+/* ─── Messages ─────────────────────────────────────────────────────────── */
+
 function renderMessages() {
+  const s = getActiveSession();
+  els.sessionTitle.textContent = s ? `${s.wing} / ${s.room} · ${s.model}` : "";
+  if (!s || !s.messages.length) {
+    els.emptyState.hidden = false;
+    els.messages.hidden = true;
+    els.messages.innerHTML = "";
+    return;
+  }
+  els.emptyState.hidden = true;
+  els.messages.hidden = false;
   els.messages.innerHTML = "";
-  for (const m of state.messages) {
+  for (const m of s.messages) {
     const div = document.createElement("div");
     div.className = `msg ${m.role}`;
     div.innerHTML = `<span class="role">${m.role}</span>${escapeHtml(m.content)}`;
+    if (m.extracted && m.extracted.length) {
+      const ex = document.createElement("div");
+      ex.className = "extracted";
+      ex.innerHTML =
+        `<b>extracted ${m.extracted.length} fact${m.extracted.length === 1 ? "" : "s"}:</b>` +
+        `<ul>${m.extracted
+          .map((f) => `<li>[${escapeHtml(f.type)}] ${escapeHtml(f.preview)}</li>`)
+          .join("")}</ul>`;
+      div.appendChild(ex);
+    }
     els.messages.appendChild(div);
   }
-  els.messages.scrollTop = els.messages.scrollHeight;
-}
-
-function appendNote(text) {
-  const div = document.createElement("div");
-  div.className = "msg system-note";
-  div.textContent = text;
-  els.messages.appendChild(div);
-  els.messages.scrollTop = els.messages.scrollHeight;
+  els.messages.parentElement.scrollTop = els.messages.parentElement.scrollHeight;
 }
 
 function renderHits(hits) {
   els.hits.innerHTML = "";
   if (!hits || !hits.length) {
-    els.hits.innerHTML = '<div class="hit-empty">no memories pulled in for this turn</div>';
+    els.hits.innerHTML =
+      '<div class="hit-empty">no memories pulled in for this turn</div>';
     return;
   }
   for (const h of hits) {
@@ -98,6 +300,8 @@ function renderHits(hits) {
   }
 }
 
+/* ─── Wings & models ───────────────────────────────────────────────────── */
+
 async function loadModels() {
   try {
     const r = await fetch("/api/models");
@@ -106,12 +310,20 @@ async function loadModels() {
     els.model.innerHTML = state.models
       .map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`)
       .join("");
-    const prefs = loadPrefs();
-    if (prefs.model && state.models.includes(prefs.model)) {
-      els.model.value = prefs.model;
+    if (state.prefs.model && state.models.includes(state.prefs.model)) {
+      els.model.value = state.prefs.model;
     }
   } catch (e) {
     setStatus(`models: ${e.message}`, "err");
+  }
+}
+
+function ensureWingOption(name) {
+  if (![...els.wing.options].some((o) => o.value === name)) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = `${name} (new)`;
+    els.wing.appendChild(opt);
   }
 }
 
@@ -120,14 +332,15 @@ async function loadWings(preferred) {
     const r = await fetch("/api/wings");
     const data = await r.json();
     state.wings = data.wings || [];
-    const prefs = loadPrefs();
-    const desired = preferred || prefs.wing || "personal";
+    const desired = preferred || state.prefs.wing || "personal";
     let opts = state.wings.map(
       (w) =>
         `<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)} (${w.drawer_count})</option>`,
     );
     if (!state.wings.some((w) => w.name === desired)) {
-      opts.unshift(`<option value="${escapeHtml(desired)}">${escapeHtml(desired)} (new)</option>`);
+      opts.unshift(
+        `<option value="${escapeHtml(desired)}">${escapeHtml(desired)} (new)</option>`,
+      );
     }
     els.wing.innerHTML = opts.join("");
     els.wing.value = desired;
@@ -136,20 +349,101 @@ async function loadWings(preferred) {
   }
 }
 
+function loadWingPromptForCurrent() {
+  const w = els.wing.value;
+  els.wingPrompt.value = state.wingPrompts[w] || "";
+}
+
+function saveWingPromptForCurrent() {
+  const w = els.wing.value;
+  if (els.wingPrompt.value.trim()) {
+    state.wingPrompts[w] = els.wingPrompt.value;
+  } else {
+    delete state.wingPrompts[w];
+  }
+  saveJSON(WING_PROMPT_KEY, state.wingPrompts);
+}
+
+/* ─── Identity / Wakeup ────────────────────────────────────────────────── */
+
+async function loadIdentity() {
+  try {
+    const r = await fetch("/api/identity");
+    const data = await r.json();
+    els.identity.value = data.text || "";
+  } catch (e) {
+    els.identityStatus.textContent = `load failed: ${e.message}`;
+  }
+}
+
+async function saveIdentity() {
+  els.identityStatus.textContent = "saving…";
+  try {
+    const r = await fetch("/api/identity", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: els.identity.value }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "failed");
+    els.identityStatus.textContent = `saved (${data.bytes} B)`;
+  } catch (e) {
+    els.identityStatus.textContent = `error: ${e.message}`;
+  }
+}
+
+async function loadWakeup() {
+  els.wakeupText.textContent = "loading…";
+  try {
+    const r = await fetch(
+      `/api/wakeup?wing=${encodeURIComponent(els.wing.value || "")}`,
+    );
+    const data = await r.json();
+    els.wakeupText.textContent = data.text || "(empty)";
+    els.wakeupTokens.textContent = `~${data.tokens_estimate || 0} tokens`;
+  } catch (e) {
+    els.wakeupText.textContent = `error: ${e.message}`;
+  }
+}
+
+/* ─── Chat ─────────────────────────────────────────────────────────────── */
+
 async function sendMessage(text) {
-  state.messages.push({ role: "user", content: text });
-  state.messages.push({ role: "assistant", content: "" });
+  let session = getActiveSession();
+  if (!session) {
+    session = createSession();
+    renderSessions();
+  }
+  // Persist UI choices into the session so they don't drift.
+  session.wing = els.wing.value || session.wing;
+  session.room = els.room.value || session.room;
+  session.model = els.model.value || session.model;
+
+  const userMsg = { role: "user", content: text };
+  const asstMsg = { role: "assistant", content: "" };
+  session.messages.push(userMsg, asstMsg);
+  if (session.title === "New chat" || !session.title) {
+    session.title = text.slice(0, 60);
+  }
+  session.updatedAt = now();
+  saveJSON(SESSIONS_KEY, state.sessions);
+  renderSessions();
   renderMessages();
+
   els.send.disabled = true;
   setStatus("…thinking", "");
 
   const body = {
-    model: els.model.value,
-    wing: els.wing.value,
-    room: els.room.value || "general",
-    messages: state.messages.slice(0, -1),
-    use_memory: els.useMemory.checked,
-    save_to_memory: els.saveMemory.checked,
+    model: session.model,
+    wing: session.wing,
+    room: session.room,
+    messages: session.messages.slice(0, -1),
+    use_memory: state.prefs.recall,
+    save_to_memory: state.prefs.save,
+    auto_extract: state.prefs.extract,
+    use_identity: state.prefs.identity,
+    system_prompt: state.wingPrompts[session.wing] || null,
+    session_id: session.id,
   };
 
   let assistantText = "";
@@ -171,88 +465,64 @@ async function sendMessage(text) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-
       let idx;
       while ((idx = buffer.indexOf("\n\n")) !== -1) {
         const block = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 2);
-        const lines = block.split("\n");
-        for (const line of lines) {
+        for (const line of block.split("\n")) {
           if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6);
           let evt;
           try {
-            evt = JSON.parse(payload);
+            evt = JSON.parse(line.slice(6));
           } catch {
             continue;
           }
           if (evt.type === "memory_hits") {
             renderHits(evt.hits);
-            setStatus(`pulled ${evt.hits.length} memories from ${evt.wing}/${evt.room}`, "");
+            setStatus(
+              `pulled ${evt.hits.length} memories from ${evt.wing}/${evt.room}`,
+              "",
+            );
           } else if (evt.type === "token") {
             assistantText += evt.content;
-            state.messages[state.messages.length - 1].content = assistantText;
+            asstMsg.content = assistantText;
             renderMessages();
           } else if (evt.type === "done") {
-            if (evt.saved_drawer_id) {
-              setStatus(`saved → ${evt.saved_drawer_id}`, "ok");
+            if (evt.extracted_facts && evt.extracted_facts.length) {
+              asstMsg.extracted = evt.extracted_facts;
+              setStatus(`saved + extracted ${evt.extracted_facts.length} facts`, "ok");
+            } else if (evt.saved_drawer_id) {
+              setStatus("saved to memory", "ok");
             } else if (evt.save_error) {
               setStatus(`save error: ${evt.save_error}`, "warn");
             } else {
-              setStatus("done (not saved)", "");
+              setStatus("done", "");
             }
+            session.updatedAt = now();
+            saveJSON(SESSIONS_KEY, state.sessions);
+            renderMessages();
           } else if (evt.type === "error") {
             setStatus(`stream error: ${evt.message}`, "err");
-          } else if (evt.type === "save_error") {
-            setStatus(`save error: ${evt.message}`, "warn");
           }
         }
       }
     }
   } catch (e) {
     setStatus(e.message, "err");
-    state.messages[state.messages.length - 1].content =
-      assistantText || `[error: ${e.message}]`;
+    asstMsg.content = assistantText || `[error: ${e.message}]`;
     renderMessages();
   } finally {
     els.send.disabled = false;
+    saveJSON(SESSIONS_KEY, state.sessions);
     loadWings(els.wing.value);
   }
 }
 
-els.composer.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const text = els.input.value.trim();
-  if (!text) return;
-  els.input.value = "";
-  savePrefs();
-  sendMessage(text);
-});
+/* ─── Wing operations ─────────────────────────────────────────────────── */
 
-els.input.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    els.composer.dispatchEvent(new Event("submit"));
-  }
-});
-
-els.newChat.addEventListener("click", () => {
-  state.messages = [];
-  renderMessages();
-  renderHits([]);
-  setStatus("new chat — same wing", "");
-});
-
-els.newWing.addEventListener("click", async () => {
-  const name = prompt("new wing name (will be created on first save)");
-  if (!name) return;
-  await loadWings(name.trim());
-  savePrefs();
-});
-
-els.renameWing.addEventListener("click", async () => {
+async function renameWing() {
   const old = els.wing.value;
-  const next = prompt(`rename wing "${old}" to:`, old);
+  const next = prompt(`Rename wing "${old}" to:`, old);
   if (!next || next.trim() === old) return;
   setStatus(`renaming ${old} → ${next}…`, "");
   try {
@@ -264,39 +534,174 @@ els.renameWing.addEventListener("click", async () => {
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
     setStatus(`renamed ${data.renamed} drawers`, "ok");
+    // Migrate per-wing prompt and any sessions on this wing
+    if (state.wingPrompts[old]) {
+      state.wingPrompts[next.trim()] = state.wingPrompts[old];
+      delete state.wingPrompts[old];
+      saveJSON(WING_PROMPT_KEY, state.wingPrompts);
+    }
+    for (const s of state.sessions) {
+      if (s.wing === old) s.wing = next.trim();
+    }
+    saveJSON(SESSIONS_KEY, state.sessions);
     await loadWings(next.trim());
+    loadWingPromptForCurrent();
     savePrefs();
+    renderSessions();
   } catch (e) {
     setStatus(`rename failed: ${e.message}`, "err");
   }
-});
+}
 
-els.deleteWing.addEventListener("click", async () => {
+async function deleteWing() {
   const name = els.wing.value;
-  if (!confirm(`Delete wing "${name}" and ALL its drawers? This cannot be undone.`)) return;
+  if (
+    !confirm(
+      `Delete wing "${name}" and ALL its drawers? Sessions stay but lose their memory.`,
+    )
+  )
+    return;
   try {
-    const r = await fetch(`/api/wings/${encodeURIComponent(name)}`, { method: "DELETE" });
+    const r = await fetch(`/api/wings/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
     setStatus(`deleted ${data.deleted} drawers from ${name}`, "warn");
+    delete state.wingPrompts[name];
+    saveJSON(WING_PROMPT_KEY, state.wingPrompts);
     await loadWings("personal");
+    loadWingPromptForCurrent();
   } catch (e) {
     setStatus(`delete failed: ${e.message}`, "err");
   }
+}
+
+/* ─── Event wiring ─────────────────────────────────────────────────────── */
+
+els.composer.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = els.input.value.trim();
+  if (!text) return;
+  els.input.value = "";
+  els.input.style.height = "auto";
+  savePrefs();
+  sendMessage(text);
 });
 
-[els.model, els.wing, els.room, els.useMemory, els.saveMemory].forEach((el) => {
-  el.addEventListener("change", savePrefs);
+els.input.addEventListener("input", () => {
+  els.input.style.height = "auto";
+  els.input.style.height = Math.min(els.input.scrollHeight, 220) + "px";
 });
+
+els.input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && (e.metaKey || e.ctrlKey || true)) {
+    if (e.shiftKey) return;
+    e.preventDefault();
+    els.composer.dispatchEvent(new Event("submit"));
+  }
+});
+
+els.newChat.addEventListener("click", () => {
+  createSession();
+  renderSessions();
+  renderMessages();
+  renderHits([]);
+  els.input.focus();
+});
+
+els.composerRecall.addEventListener("click", () => {
+  state.prefs.recall = !state.prefs.recall;
+  els.tRecall.checked = state.prefs.recall;
+  savePrefs();
+});
+
+els.toggleMemoryPane.addEventListener("click", () => {
+  els.memoryPane.hidden = !els.memoryPane.hidden;
+});
+els.closeMemory.addEventListener("click", () => {
+  els.memoryPane.hidden = true;
+});
+
+els.toggleSidebar.addEventListener("click", () => {
+  els.sidebar.classList.add("hidden");
+  els.showSidebar.classList.remove("hidden");
+});
+els.showSidebar.addEventListener("click", () => {
+  els.sidebar.classList.remove("hidden");
+  els.showSidebar.classList.add("hidden");
+});
+
+els.openSettings.addEventListener("click", openSettings);
+els.composerPlus.addEventListener("click", openSettings);
+els.closeSettings.addEventListener("click", () => {
+  els.settingsOverlay.hidden = true;
+  saveWingPromptForCurrent();
+});
+
+els.settingsOverlay.addEventListener("click", (e) => {
+  if (e.target === els.settingsOverlay) {
+    els.settingsOverlay.hidden = true;
+    saveWingPromptForCurrent();
+  }
+});
+
+async function openSettings() {
+  els.settingsOverlay.hidden = false;
+  await loadIdentity();
+  loadWingPromptForCurrent();
+  loadWakeup();
+}
+
+els.saveIdentity.addEventListener("click", saveIdentity);
+els.refreshWakeup.addEventListener("click", loadWakeup);
+
+els.wing.addEventListener("change", () => {
+  loadWingPromptForCurrent();
+  loadWakeup();
+  savePrefs();
+});
+
+els.wingNew.addEventListener("click", async () => {
+  const name = prompt("New wing name (will be created on first save)");
+  if (!name) return;
+  await loadWings(name.trim());
+  loadWingPromptForCurrent();
+  savePrefs();
+});
+
+els.wingRename.addEventListener("click", renameWing);
+els.wingDelete.addEventListener("click", deleteWing);
+
+[els.model, els.room, els.tRecall, els.tSave, els.tExtract, els.tIdentity].forEach(
+  (el) => el.addEventListener("change", savePrefs),
+);
+
+els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
+
+/* ─── Init ─────────────────────────────────────────────────────────────── */
 
 (async function init() {
   setStatus("loading…", "");
+  els.tRecall.checked = state.prefs.recall;
+  els.tSave.checked = state.prefs.save;
+  els.tExtract.checked = state.prefs.extract;
+  els.tIdentity.checked = state.prefs.identity;
+  els.room.value = state.prefs.room || "general";
+  syncRecallButton();
+
   await loadModels();
-  await loadWings();
-  const prefs = loadPrefs();
-  if (prefs.room) els.room.value = prefs.room;
-  if (typeof prefs.useMemory === "boolean") els.useMemory.checked = prefs.useMemory;
-  if (typeof prefs.saveMemory === "boolean") els.saveMemory.checked = prefs.saveMemory;
-  setStatus(`ready — palace: ~/.mempalace/palace`, "ok");
+  await loadWings(state.prefs.wing);
+
+  ensureSession();
+  renderMessages();
   renderHits([]);
+
+  try {
+    const h = await fetch("/api/health").then((r) => r.json());
+    els.palaceLabel.textContent = h.palace_path;
+  } catch {}
+
+  setStatus("ready", "ok");
+  els.input.focus();
 })();

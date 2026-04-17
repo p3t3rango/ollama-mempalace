@@ -3,57 +3,175 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ollama-mempalace</title>
+    <title>ollama · mempalace</title>
     <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
-    <header>
-      <h1>ollama · mempalace</h1>
-      <div class="controls">
-        <label>
-          model
-          <select id="model"></select>
-        </label>
-        <label>
-          wing
-          <select id="wing"></select>
-        </label>
-        <label>
-          room
-          <input id="room" type="text" value="general" />
-        </label>
-        <button id="wing-new" title="New wing">+ wing</button>
-        <button id="wing-rename" title="Rename current wing">rename</button>
-        <button id="wing-delete" class="danger" title="Delete current wing">delete</button>
-        <label class="toggle">
-          <input id="use-memory" type="checkbox" checked />
-          recall
-        </label>
-        <label class="toggle">
-          <input id="save-memory" type="checkbox" checked />
-          save
-        </label>
-        <button id="new-chat">new chat</button>
+    <aside id="sidebar">
+      <div class="sidebar-top">
+        <button id="toggle-sidebar" class="icon-btn" title="Hide sidebar">⌷</button>
       </div>
-    </header>
-    <main>
-      <section id="chat-pane">
-        <div id="messages"></div>
-        <form id="composer">
+      <div class="sidebar-actions">
+        <button id="new-chat" class="side-action">
+          <span class="ic">＋</span> New Chat
+        </button>
+        <button id="open-settings" class="side-action">
+          <span class="ic">⚙</span> Settings
+        </button>
+      </div>
+      <div id="sessions" class="sessions"></div>
+      <div class="sidebar-footer">
+        <span id="palace-label"></span>
+      </div>
+    </aside>
+
+    <main id="main">
+      <header class="topbar">
+        <button id="show-sidebar" class="icon-btn hidden" title="Show sidebar">⌷</button>
+        <div class="topbar-title" id="session-title"></div>
+        <button id="toggle-memory-pane" class="icon-btn" title="Memory hits">🧠</button>
+      </header>
+
+      <section id="chat-area">
+        <div id="empty-state">
+          <div class="mascot" aria-hidden="true">
+            <div class="mascot-face">
+              <div class="ear left"></div>
+              <div class="ear right"></div>
+              <div class="head">
+                <div class="eye left"></div>
+                <div class="eye right"></div>
+              </div>
+            </div>
+          </div>
+          <div class="empty-hint">Send a message to start. Memory recall and save are on by default.</div>
+        </div>
+        <div id="messages" hidden></div>
+      </section>
+
+      <form id="composer">
+        <div class="composer-pill">
           <textarea
             id="input"
-            placeholder="ask anything — recall and save are on by default"
-            rows="3"
+            placeholder="Send a message"
+            rows="1"
           ></textarea>
-          <button id="send" type="submit">send</button>
-        </form>
-      </section>
-      <aside id="memory-pane">
-        <h2>memory hits</h2>
-        <div id="hits"></div>
-      </aside>
+          <div class="composer-row">
+            <button type="button" id="composer-plus" class="pill-btn" title="Settings">＋</button>
+            <button type="button" id="composer-recall" class="pill-btn toggle" title="Toggle recall">
+              <span class="ic">🧠</span>
+              <span class="lbl">recall</span>
+            </button>
+            <div class="grow"></div>
+            <select id="model" class="model-pick"></select>
+            <button type="submit" id="send" class="pill-btn send" title="Send (⌘↵)">↑</button>
+          </div>
+        </div>
+      </form>
     </main>
+
+    <aside id="memory-pane" hidden>
+      <header>
+        <h2>memory hits</h2>
+        <button id="close-memory" class="icon-btn">✕</button>
+      </header>
+      <div id="hits"></div>
+    </aside>
+
     <div id="status"></div>
+
+    <!-- Settings overlay -->
+    <div id="settings-overlay" hidden>
+      <div class="settings-panel">
+        <header>
+          <h2>Settings</h2>
+          <button id="close-settings" class="icon-btn">✕</button>
+        </header>
+        <div class="settings-body">
+          <section>
+            <h3>Identity (Layer 0)</h3>
+            <p class="muted">
+              A persistent system prompt loaded into every conversation. Stored in
+              <code>~/.mempalace/identity.txt</code>. Tell the model who it is, who you
+              are, and how it should behave.
+            </p>
+            <textarea id="identity" rows="8" placeholder="I am Atlas, a personal AI assistant for Pete.
+Traits: warm, direct, remembers everything.
+Project: …"></textarea>
+            <div class="row">
+              <button id="save-identity" class="primary">Save identity</button>
+              <span id="identity-status" class="muted"></span>
+            </div>
+          </section>
+
+          <section>
+            <h3>Current chat</h3>
+            <div class="grid">
+              <label>
+                Wing
+                <div class="row">
+                  <select id="wing"></select>
+                  <button id="wing-new" class="ghost" title="New wing">+</button>
+                  <button id="wing-rename" class="ghost" title="Rename">rename</button>
+                  <button id="wing-delete" class="danger" title="Delete">delete</button>
+                </div>
+              </label>
+              <label>
+                Room
+                <input id="room" type="text" value="general" />
+              </label>
+              <label>
+                Per-wing system prompt
+                <textarea id="wing-prompt" rows="4" placeholder="Extra instructions appended only when this wing is active. Stored locally in your browser."></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <h3>Behavior</h3>
+            <div class="toggles">
+              <label class="check">
+                <input id="t-recall" type="checkbox" checked />
+                Recall memory before each turn
+              </label>
+              <label class="check">
+                <input id="t-save" type="checkbox" checked />
+                Save the exchange after each turn
+              </label>
+              <label class="check">
+                <input id="t-extract" type="checkbox" checked />
+                Auto-extract facts (preferences, decisions, events)
+              </label>
+              <label class="check">
+                <input id="t-identity" type="checkbox" checked />
+                Inject identity.txt as a system message
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <h3>Wake-up preview</h3>
+            <p class="muted">L0 + L1 — the context the model sees before any of your messages.</p>
+            <div class="row">
+              <button id="refresh-wakeup" class="ghost">Refresh</button>
+              <span id="wakeup-tokens" class="muted"></span>
+            </div>
+            <pre id="wakeup-text" class="wakeup"></pre>
+          </section>
+
+          <section>
+            <h3>Wings &amp; rooms — how to think about them</h3>
+            <ul class="muted">
+              <li><b>Wing</b> = a top-level domain. A project, a person, or a big topic. Examples: <code>personal</code>, <code>dos-clone</code>, <code>health</code>, <code>work</code>.</li>
+              <li><b>Room</b> = a facet inside a wing. For a project: <code>auth</code>, <code>gameplay</code>, <code>billing</code>. For a person: <code>conversations</code>, <code>preferences</code>.</li>
+              <li><b>Auto-extracted facts</b> land in rooms named <code>facts_&lt;type&gt;</code> (e.g. <code>facts_preference</code>) inside the active wing.</li>
+              <li>Memory recall is scoped to the current wing so unrelated context can't bleed in.</li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </div>
+
     <script src="/static/app.js"></script>
   </body>
 </html>
