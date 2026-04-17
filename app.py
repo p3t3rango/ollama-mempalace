@@ -659,6 +659,33 @@ async def recent_activity(limit: int = 20):
     return {"recent": rows[:limit]}
 
 
+@app.delete("/api/chat-session/{session_id}")
+async def delete_chat_session(session_id: str):
+    """Delete every drawer tagged with this chat session's id."""
+    col = _safe_collection()
+    if col is None:
+        raise HTTPException(404, "No palace yet")
+    try:
+        result = col.get(include=["metadatas"])
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    ids = result.get("ids") or []
+    metas = result.get("metadatas") or []
+    matched = [
+        ids[i]
+        for i, m in enumerate(metas)
+        if session_id
+        and session_id in (((m or {}).get("source_file") or ""))
+    ]
+    if not matched:
+        return {"deleted": 0, "session_id": session_id}
+    try:
+        col.delete(ids=matched)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"deleted": len(matched), "session_id": session_id}
+
+
 @app.delete("/api/wings/{wing}/attachments")
 async def delete_attachment(wing: str, filename: str):
     col = _safe_collection()

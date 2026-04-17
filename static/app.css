@@ -1035,6 +1035,15 @@ textarea::placeholder {
   display: none;
 }
 
+.msg .msg-attachments {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed var(--border);
+}
+
 .msg .extracted {
   margin-top: 6px;
   padding: 6px 10px;
@@ -1189,6 +1198,72 @@ textarea::placeholder {
   letter-spacing: 0.6px;
   color: var(--fg-dim);
   font-family: var(--mono);
+}
+
+.pane-caption {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.help-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  color: var(--fg-muted);
+  font-size: 10px;
+  margin-left: 4px;
+  cursor: help;
+}
+
+/* Pending attachments (staged for next message) */
+#pending-attachments {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 6px 16px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pending-chip {
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+}
+
+.pending-chip .fname {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.pending-chip .fsize {
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-family: var(--mono);
+}
+
+.pending-chip .x {
+  cursor: pointer;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.pending-chip .x:hover {
+  color: var(--danger);
 }
 
 #hits {

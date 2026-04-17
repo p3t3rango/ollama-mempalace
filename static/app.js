@@ -83,8 +83,12 @@ const els = {
   dragOverlay: $("drag-overlay"),
   dragWing: $("drag-wing"),
   attachStaging: $("attach-staging"),
+  pendingAttachments: $("pending-attachments"),
   attachFileInput: $("attach-file-input"),
+  wingFileInput: $("wing-file-input"),
+  uploadWingFileBtn: $("upload-wing-file-btn"),
   attachmentsList: $("attachments-list"),
+  wingPromptPicker: $("wing-prompt-picker"),
   input: $("input"),
   composer: $("composer"),
   send: $("send"),
@@ -284,10 +288,22 @@ function renderSessions() {
         saveJSON(SESSIONS_KEY, state.sessions);
         renderSessions();
       });
-      item.querySelector(".delete").addEventListener("click", (e) => {
+      item.querySelector(".delete").addEventListener("click", async (e) => {
         e.stopPropagation();
-        if (!confirm(`Delete chat "${s.title}"? Memory drawers stay in MemPalace.`))
-          return;
+        const alsoMemory = confirm(
+          `Delete chat "${s.title}"?\n\nOK = also delete its memory drawers\nCancel to abort`,
+        );
+        if (!alsoMemory) return;
+        // Attempt to purge associated drawers. Failure is non-fatal.
+        try {
+          const r = await fetch(`/api/chat-session/${encodeURIComponent(s.id)}`, {
+            method: "DELETE",
+          });
+          if (r.ok) {
+            const d = await r.json();
+            if (d.deleted) setStatus(`removed ${d.deleted} drawers`, "warn");
+          }
+        } catch {}
         deleteSession(s.id);
         renderSessions();
         renderMessages();
@@ -328,7 +344,15 @@ function renderMessages() {
   for (const m of s.messages) {
     const div = document.createElement("div");
     div.className = `msg ${m.role}`;
-    div.innerHTML = `<span class="role">${m.role}</span>${escapeHtml(m.content)}`;
+    const shown =
+      m.role === "user" && m.displayContent ? m.displayContent : m.content;
+    const attachTag =
+      m.attachments && m.attachments.length
+        ? `<div class="msg-attachments">📎 ${m.attachments
+            .map((a) => escapeHtml(a))
+            .join(", ")}</div>`
+        : "";
+    div.innerHTML = `<span class="role">${m.role}</span>${attachTag}${escapeHtml(shown)}`;
     if (m.extracted && m.extracted.length) {
       const ex = document.createElement("div");
       ex.className = "extracted";
@@ -460,13 +484,53 @@ function setCurrentRoom(name) {
   saveJSON(SESSIONS_KEY, state.sessions);
 }
 
+function populateWingPromptPicker() {
+  if (!els.wingPromptPicker) return;
+  const seen = new Set();
+  const names = [];
+  for (const w of state.wings) {
+    if (!seen.has(w.name)) {
+      seen.add(w.name);
+      names.push(w.name);
+    }
+  }
+  for (const w of state.knownWings) {
+    if (!seen.has(w)) {
+      seen.add(w);
+      names.push(w);
+    }
+  }
+  names.sort();
+  const current = els.wingPromptPicker.value || els.wing.value || "personal";
+  els.wingPromptPicker.innerHTML = names
+    .map(
+      (n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`,
+    )
+    .join("");
+  if (names.includes(current)) els.wingPromptPicker.value = current;
+  else if (names.length) els.wingPromptPicker.value = names[0];
+}
+
+function promptTargetWing() {
+  return (
+    (els.wingPromptPicker && els.wingPromptPicker.value) ||
+    els.wing.value ||
+    "personal"
+  );
+}
+
 function loadWingPromptForCurrent() {
-  const w = els.wing.value;
+  populateWingPromptPicker();
+  if (!els.wingPromptPicker) return;
+  if (els.wing && !els.wingPromptPicker.value)
+    els.wingPromptPicker.value = els.wing.value;
+  const w = promptTargetWing();
   els.wingPrompt.value = state.wingPrompts[w] || "";
 }
 
 function saveWingPromptForCurrent() {
-  const w = els.wing.value;
+  const w = promptTargetWing();
+  if (!w) return;
   if (els.wingPrompt.value.trim()) {
     state.wingPrompts[w] = els.wingPrompt.value;
   } else {
@@ -548,7 +612,17 @@ async function sendMessage(text) {
   session.room = els.room.value || session.room;
   session.model = els.model.value || session.model;
 
-  const userMsg = { role: "user", content: text };
+  // Fold any staged attachments into the user's message
+  const preamble = buildAttachmentPreamble();
+  const attachedNames = pendingAttachments.map((p) => p.name);
+  const fullUserContent = preamble ? `${preamble}\n${text}` : text;
+
+  const userMsg = {
+    role: "user",
+    content: fullUserContent,
+    displayContent: text,
+    attachments: attachedNames,
+  };
   const asstMsg = { role: "assistant", content: "" };
   session.messages.push(userMsg, asstMsg);
   if (session.title === "New chat" || !session.title) {
@@ -644,6 +718,9 @@ async function sendMessage(text) {
     renderMessages();
   } finally {
     els.send.disabled = false;
+    // Clear staged attachments after the send (whether success or failure)
+    pendingAttachments.length = 0;
+    renderPendingAttachments();
     saveJSON(SESSIONS_KEY, state.sessions);
     loadWings(els.wing.value);
   }
@@ -966,10 +1043,88 @@ async function loadAttachments() {
   }
 }
 
+/* ─── Pending (per-message) attachments ─────────────────────────────── */
+
+const pendingAttachments = []; // { name, size, content }
+
+const STAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+async function stageAttachment(file) {
+  if (!isLikelyText(file)) {
+    setStatus(`skipped ${file.name} (not text)`, "warn");
+    return;
+  }
+  if (file.size > STAGE_MAX_BYTES) {
+    setStatus(`skipped ${file.name} (>5MB)`, "warn");
+    return;
+  }
+  try {
+    const content = await file.text();
+    pendingAttachments.push({ name: file.name, size: file.size, content });
+    renderPendingAttachments();
+  } catch (e) {
+    setStatus(`failed to read ${file.name}: ${e.message}`, "err");
+  }
+}
+
+async function stageMany(fileList) {
+  for (const f of Array.from(fileList)) {
+    await stageAttachment(f);
+  }
+}
+
+function renderPendingAttachments() {
+  const host = els.pendingAttachments;
+  host.innerHTML = "";
+  if (!pendingAttachments.length) {
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  pendingAttachments.forEach((p, i) => {
+    const chip = document.createElement("div");
+    chip.className = "pending-chip";
+    chip.innerHTML = `
+      <span>📎</span>
+      <span class="fname">${escapeHtml(p.name)}</span>
+      <span class="fsize">${(p.size / 1024).toFixed(1)} KB</span>
+      <span class="x" title="remove">×</span>
+    `;
+    chip.querySelector(".x").addEventListener("click", () => {
+      pendingAttachments.splice(i, 1);
+      renderPendingAttachments();
+    });
+    host.appendChild(chip);
+  });
+}
+
+function buildAttachmentPreamble() {
+  if (!pendingAttachments.length) return "";
+  const blocks = pendingAttachments.map(
+    (p) =>
+      `[Attached file: ${p.name}]\n${p.content}\n[End of ${p.name}]`,
+  );
+  return blocks.join("\n\n") + "\n\n";
+}
+
+/* Composer + now stages; wing-permanent upload uses its own button. */
 els.attachFileInput.addEventListener("change", async (e) => {
-  await uploadFiles(e.target.files);
+  await stageMany(e.target.files);
   els.attachFileInput.value = "";
 });
+
+if (els.wingFileInput) {
+  els.wingFileInput.addEventListener("change", async (e) => {
+    await uploadFiles(e.target.files);
+    els.wingFileInput.value = "";
+  });
+}
+
+if (els.uploadWingFileBtn) {
+  els.uploadWingFileBtn.addEventListener("click", () =>
+    els.wingFileInput.click(),
+  );
+}
 
 let _dragDepth = 0;
 window.addEventListener("dragenter", (e) => {
@@ -996,7 +1151,11 @@ window.addEventListener("drop", async (e) => {
   els.dragOverlay.hidden = true;
   els.chatArea.classList.remove("drag-over");
   const files = await collectFromDataTransfer(e.dataTransfer);
-  if (files.length) await uploadFiles(files);
+  if (!files.length) return;
+  // Dropping onto the settings panel → persist to wing; onto the chat area → stage for message.
+  const onSettings = els.settingsOverlay && !els.settingsOverlay.hidden;
+  if (onSettings) await uploadFiles(files);
+  else await stageMany(files);
 });
 
 /* ─── Memory modal ────────────────────────────────────────────────────── */
@@ -1714,6 +1873,12 @@ els.wingDelete.addEventListener("click", deleteWing);
 );
 
 els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
+if (els.wingPromptPicker) {
+  els.wingPromptPicker.addEventListener("change", () => {
+    const w = promptTargetWing();
+    els.wingPrompt.value = state.wingPrompts[w] || "";
+  });
+}
 
 /* ─── Init ─────────────────────────────────────────────────────────────── */
 
