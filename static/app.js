@@ -368,10 +368,10 @@ function saveWingPromptForCurrent() {
 
 /* ─── Identity / Wakeup ────────────────────────────────────────────────── */
 
-const DEFAULT_IDENTITY = `I am a personal AI assistant for Pete.
+const DEFAULT_IDENTITY = `I am a personal AI assistant for *your name*.
 Traits: concise, direct, remembers what matters across conversations.
 Tone: warm but not sycophantic. Skip throat-clearing and trailing summaries.
-People: Pete (the user).
+People: *your name* (the user).
 `;
 
 async function loadIdentity() {
