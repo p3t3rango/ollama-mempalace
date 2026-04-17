@@ -114,6 +114,11 @@
             <div class="grid">
               <label>
                 Wing
+                <span class="caption">
+                  A top-level domain — a project, person, or big topic
+                  (e.g. <code>personal</code>, <code>dos-clone</code>, <code>music</code>).
+                  Memory recall is scoped to the active wing, so unrelated context can't leak in.
+                </span>
                 <div class="row">
                   <select id="wing"></select>
                   <button id="wing-new" class="ghost" title="New wing">+</button>
@@ -123,11 +128,21 @@
               </label>
               <label>
                 Room
+                <span class="caption">
+                  A facet inside the wing — for a project: <code>auth</code>, <code>gameplay</code>,
+                  <code>billing</code>. Auto-extracted facts land in <code>facts_&lt;type&gt;</code>
+                  rooms automatically.
+                </span>
                 <input id="room" type="text" value="general" />
               </label>
               <label>
                 Per-wing system prompt
-                <textarea id="wing-prompt" rows="4" placeholder="Extra instructions appended only when this wing is active. Stored locally in your browser."></textarea>
+                <span class="caption">
+                  Extra instructions appended only when this wing is active. Use this for
+                  <i>what the wing is about</i> (project context, role, conventions) — keep
+                  identity in the Layer 0 above. Stored locally in your browser.
+                </span>
+                <textarea id="wing-prompt" rows="4" placeholder="e.g. This wing is for the dos-clone game. Code in TypeScript. Prefer canvas APIs over WebGL."></textarea>
               </label>
             </div>
           </section>
