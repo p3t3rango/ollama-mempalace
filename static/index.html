@@ -221,11 +221,11 @@
                 <span class="caption">
                   Point this at a directory of conversation exports (Claude Code JSONL,
                   ChatGPT JSON, Slack exports, plain text). MemPalace will mine each
-                  exchange and file it into the current wing.
+                  exchange into the current wing. <b>Takes minutes for large folders.</b>
                 </span>
                 <div class="row">
                   <input id="import-convos-path" type="text" placeholder="e.g. ~/Downloads/claude-export" style="flex:1" />
-                  <button id="import-convos-btn" class="primary" type="button">import</button>
+                  <button id="import-convos-btn" class="primary" type="button">Import</button>
                 </div>
                 <span id="import-convos-status" class="muted"></span>
               </label>
@@ -314,11 +314,20 @@
 
           <div class="tab-pane" data-tab="browser" hidden>
             <div class="browser-toolbar">
-              <select id="browser-wing">
-                <option value="">all wings</option>
-              </select>
-              <input id="browser-room" type="text" placeholder="room (optional)" />
-              <input id="browser-q" type="text" placeholder="search text…" />
+              <div class="field">
+                <span class="field-label">Wing</span>
+                <select id="browser-wing">
+                  <option value="">all wings</option>
+                </select>
+              </div>
+              <div class="field">
+                <span class="field-label">Room</span>
+                <input id="browser-room" type="text" placeholder="e.g. general" />
+              </div>
+              <div class="field field-grow">
+                <span class="field-label">Search text</span>
+                <input id="browser-q" type="text" placeholder="match drawer content" />
+              </div>
               <button id="browser-reload" class="ghost">refresh</button>
             </div>
             <div id="browser-list"></div>
@@ -344,9 +353,16 @@
               (the model can call <code>kg_add</code> later — for now it's manual).
             </p>
             <div id="kg-stats" class="muted"></div>
+            <h4>Query an entity</h4>
             <div class="kg-toolbar">
-              <input id="kg-entity" type="text" placeholder="entity name (e.g. Pete, dos-clone)" />
-              <input id="kg-asof" type="text" placeholder="as-of YYYY-MM-DD (optional)" />
+              <div class="field field-grow">
+                <span class="field-label">Entity</span>
+                <input id="kg-entity" type="text" placeholder="e.g. Pete, dos-clone" />
+              </div>
+              <div class="field">
+                <span class="field-label">As of (optional)</span>
+                <input id="kg-asof" type="text" placeholder="YYYY-MM-DD" />
+              </div>
               <button id="kg-search" class="primary">query</button>
               <button id="kg-timeline-btn" class="ghost">timeline</button>
             </div>
@@ -354,10 +370,22 @@
 
             <h4 style="margin-top:18px">Add a fact</h4>
             <div class="kg-add-form">
-              <input id="kg-subj" placeholder="subject (Pete)" />
-              <input id="kg-pred" placeholder="predicate (works_on)" />
-              <input id="kg-obj" placeholder="object (dos-clone)" />
-              <input id="kg-from" placeholder="valid from YYYY-MM-DD" />
+              <div class="field">
+                <span class="field-label">Subject</span>
+                <input id="kg-subj" placeholder="Pete" />
+              </div>
+              <div class="field">
+                <span class="field-label">Predicate</span>
+                <input id="kg-pred" placeholder="works_on" />
+              </div>
+              <div class="field">
+                <span class="field-label">Object</span>
+                <input id="kg-obj" placeholder="dos-clone" />
+              </div>
+              <div class="field">
+                <span class="field-label">Valid from</span>
+                <input id="kg-from" placeholder="YYYY-MM-DD" />
+              </div>
               <button id="kg-add-btn" class="primary">add</button>
               <span id="kg-add-status" class="muted"></span>
             </div>
@@ -369,14 +397,30 @@
               same idea spans projects (e.g. <code>dos-clone/auth ⇆ work/auth</code>).
               Following a tunnel pulls the linked room's drawers into recall.
             </p>
+            <h4>Create a tunnel</h4>
             <div class="tunnel-add-form">
-              <input id="tunnel-wing-a" placeholder="wing A" />
-              <input id="tunnel-room-a" placeholder="room A" />
-              <span class="sep">⇆</span>
-              <input id="tunnel-wing-b" placeholder="wing B" />
-              <input id="tunnel-room-b" placeholder="room B" />
-              <input id="tunnel-kind" placeholder="kind (related)" value="related" />
-              <button id="tunnel-add-btn" class="primary">create tunnel</button>
+              <div class="field">
+                <span class="field-label">Source wing</span>
+                <input id="tunnel-wing-a" placeholder="e.g. dos-clone" />
+              </div>
+              <div class="field">
+                <span class="field-label">Source room</span>
+                <input id="tunnel-room-a" placeholder="e.g. auth" />
+              </div>
+              <span class="sep" style="align-self:center;padding-top:16px">⇆</span>
+              <div class="field">
+                <span class="field-label">Target wing</span>
+                <input id="tunnel-wing-b" placeholder="e.g. work" />
+              </div>
+              <div class="field">
+                <span class="field-label">Target room</span>
+                <input id="tunnel-room-b" placeholder="e.g. auth" />
+              </div>
+              <div class="field">
+                <span class="field-label">Label</span>
+                <input id="tunnel-kind" placeholder="related" value="related" />
+              </div>
+              <button id="tunnel-add-btn" class="primary">create</button>
             </div>
             <div id="tunnel-status" class="muted"></div>
             <div id="tunnels-list"></div>
@@ -388,10 +432,18 @@
               learned, or wants to remember. Separate from the chat memory.
             </p>
             <div class="diary-write">
-              <textarea id="diary-entry" rows="3" placeholder="Write an entry…"></textarea>
-              <input id="diary-topic" placeholder="topic (general)" value="general" />
-              <button id="diary-write-btn" class="primary">add entry</button>
-              <span id="diary-write-status" class="muted"></span>
+              <div class="field">
+                <span class="field-label">Entry</span>
+                <textarea id="diary-entry" rows="3" placeholder="What did you notice, learn, or want to remember?"></textarea>
+              </div>
+              <div class="field">
+                <span class="field-label">Topic</span>
+                <input id="diary-topic" placeholder="a short tag — e.g. reflection, todo, observation" value="general" />
+              </div>
+              <div class="row-controls">
+                <button id="diary-write-btn" class="primary">add entry</button>
+                <span id="diary-write-status" class="muted"></span>
+              </div>
             </div>
             <h4>Recent entries</h4>
             <div id="diary-list"></div>
