@@ -131,8 +131,44 @@ button {
 .side-action .ic {
   font-size: 16px;
   width: 18px;
-  display: inline-block;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.side-action .ic svg {
+  width: 16px;
+  height: 16px;
+}
+
+#anon-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: rgba(212, 154, 58, 0.08);
+  border-bottom: 1px solid rgba(212, 154, 58, 0.25);
+  color: var(--warn);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+#anon-banner svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.session-item .anon-mark {
+  margin-right: 4px;
+  color: var(--warn);
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.session-item .anon-mark svg {
+  width: 11px;
+  height: 11px;
 }
 
 .sessions-filter {

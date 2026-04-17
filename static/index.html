@@ -23,6 +23,16 @@
         <button id="new-chat" class="side-action">
           <span class="ic">＋</span> New Chat
         </button>
+        <button id="new-incognito" class="side-action" title="Incognito: doesn't recall, save, or auto-extract">
+          <span class="ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
+              <circle cx="12" cy="12" r="3" />
+              <line x1="3" y1="3" x2="21" y2="21" />
+            </svg>
+          </span>
+          Incognito Chat
+        </button>
         <button id="open-settings" class="side-action">
           <span class="ic">⚙</span> Settings
         </button>
@@ -60,6 +70,14 @@
         <button id="toggle-memory-pane" class="icon-btn" title="Memory hits">🧠</button>
       </header>
 
+      <div id="anon-banner" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" />
+          <circle cx="12" cy="12" r="3" />
+          <line x1="3" y1="3" x2="21" y2="21" />
+        </svg>
+        <span>Incognito chat — nothing recalled, nothing saved, no facts extracted.</span>
+      </div>
       <section id="chat-area">
         <div id="empty-state">
           <div class="mascot" aria-hidden="true">

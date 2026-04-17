@@ -68,6 +68,8 @@ const els = {
   toggleSidebar: $("toggle-sidebar"),
   showSidebar: $("show-sidebar"),
   newChat: $("new-chat"),
+  newIncognito: $("new-incognito"),
+  anonBanner: $("anon-banner"),
   openSettings: $("open-settings"),
   sessions: $("sessions"),
   toggleWingFilter: $("toggle-wing-filter"),
@@ -150,16 +152,17 @@ function getActiveSession() {
   return state.sessions.find((s) => s.id === state.activeId);
 }
 
-function createSession() {
+function createSession(opts = {}) {
   const s = {
     id: uuid(),
-    title: "New chat",
+    title: opts.anonymous ? "Incognito chat" : "New chat",
     wing: state.prefs.wing || "personal",
     room: state.prefs.room || "general",
     model: state.prefs.model || (state.models[0] ?? ""),
     createdAt: now(),
     updatedAt: now(),
     messages: [],
+    anonymous: !!opts.anonymous,
   };
   state.sessions.unshift(s);
   state.activeId = s.id;
@@ -167,6 +170,8 @@ function createSession() {
   saveJSON(SESSIONS_KEY, state.sessions);
   return s;
 }
+
+const ANON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/></svg>`;
 
 function deleteSession(id) {
   const idx = state.sessions.findIndex((s) => s.id === id);
@@ -241,9 +246,12 @@ function renderSessions() {
     groupEl.innerHTML = `<div class="sessions-group-label">${label}</div>`;
     for (const s of group) {
       const item = document.createElement("div");
-      item.className = `session-item${s.id === state.activeId ? " active" : ""}`;
+      item.className = `session-item${s.id === state.activeId ? " active" : ""}${s.anonymous ? " anon" : ""}`;
+      const mark = s.anonymous
+        ? `<span class="anon-mark" title="Incognito">${ANON_SVG}</span>`
+        : "";
       item.innerHTML = `
-        <span class="title">${escapeHtml(s.title || "Untitled")}</span>
+        <span class="title">${mark}${escapeHtml(s.title || "Untitled")}</span>
         <span class="actions">
           <button class="session-btn rename" title="Rename">✎</button>
           <button class="session-btn delete" title="Delete">✕</button>
@@ -293,6 +301,7 @@ function ensureSession() {
 
 function renderMessages() {
   const s = getActiveSession();
+  els.anonBanner.hidden = !(s && s.anonymous);
   if (!s || !s.messages.length) {
     els.emptyState.hidden = false;
     els.messages.hidden = true;
@@ -544,11 +553,13 @@ async function sendMessage(text) {
     wing: session.wing,
     room: session.room,
     messages: session.messages.slice(0, -1),
-    use_memory: state.prefs.recall,
-    save_to_memory: state.prefs.save,
-    auto_extract: state.prefs.extract,
+    use_memory: session.anonymous ? false : state.prefs.recall,
+    save_to_memory: session.anonymous ? false : state.prefs.save,
+    auto_extract: session.anonymous ? false : state.prefs.extract,
     use_identity: state.prefs.identity,
-    system_prompt: state.wingPrompts[session.wing] || null,
+    system_prompt: session.anonymous
+      ? null
+      : state.wingPrompts[session.wing] || null,
     session_id: session.id,
   };
 
@@ -715,6 +726,15 @@ els.newChat.addEventListener("click", () => {
   renderSessions();
   renderMessages();
   renderHits([]);
+  els.input.focus();
+});
+
+els.newIncognito.addEventListener("click", () => {
+  createSession({ anonymous: true });
+  renderSessions();
+  renderMessages();
+  renderHits([]);
+  setStatus("incognito chat — won't recall or save", "warn");
   els.input.focus();
 });
 
