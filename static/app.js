@@ -150,7 +150,8 @@ function savePrefs() {
 }
 
 function syncRecallButton() {
-  els.composerRecall.classList.toggle("on", state.prefs.recall);
+  // Default-on: only explicit `false` should make the button gray.
+  els.composerRecall.classList.toggle("on", state.prefs.recall !== false);
 }
 
 function escapeHtml(s) {
@@ -1932,11 +1933,19 @@ if (els.wingPromptPicker) {
 
 (async function init() {
   setStatus("loading…", "");
-  els.tRecall.checked = state.prefs.recall;
-  els.tSave.checked = state.prefs.save;
-  els.tExtract.checked = state.prefs.extract;
-  els.tIdentity.checked = state.prefs.identity;
+  // Treat missing keys as default-on so older saved prefs from before each
+  // toggle existed don't silently leave features off.
+  els.tRecall.checked = state.prefs.recall !== false;
+  els.tSave.checked = state.prefs.save !== false;
+  els.tExtract.checked = state.prefs.extract !== false;
+  els.tIdentity.checked = state.prefs.identity !== false;
   if (els.tTools) els.tTools.checked = !!state.prefs.tools;
+  // Keep stored state in sync with what we just rendered.
+  state.prefs.recall = els.tRecall.checked;
+  state.prefs.save = els.tSave.checked;
+  state.prefs.extract = els.tExtract.checked;
+  state.prefs.identity = els.tIdentity.checked;
+  saveJSON(PREFS_KEY, state.prefs);
   els.room.value = state.prefs.room || "general";
   syncRecallButton();
 
