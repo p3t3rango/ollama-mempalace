@@ -151,7 +151,13 @@ function savePrefs() {
 
 function syncRecallButton() {
   // Default-on: only explicit `false` should make the button gray.
-  els.composerRecall.classList.toggle("on", state.prefs.recall !== false);
+  const on = state.prefs.recall !== false;
+  els.composerRecall.classList.toggle("on", on);
+  const lbl = els.composerRecall.querySelector(".lbl");
+  if (lbl) lbl.textContent = on ? "recall on" : "recall off";
+  els.composerRecall.title = on
+    ? "Memory recall is ON — the model gets relevant memories from this wing before each reply. Click to turn off."
+    : "Memory recall is OFF — the model has no memory context. Click to turn on.";
 }
 
 function escapeHtml(s) {
