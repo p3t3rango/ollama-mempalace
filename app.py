@@ -1107,7 +1107,22 @@ async def chat(req: ChatRequest):
                                 "stream": False,
                             },
                         )
-                        r.raise_for_status()
+                        if r.status_code != 200:
+                            try:
+                                err = r.json().get("error") or r.text[:500]
+                            except Exception:
+                                err = r.text[:500]
+                            yield (
+                                "data: "
+                                + json.dumps(
+                                    {
+                                        "type": "error",
+                                        "message": f"Ollama {r.status_code}: {err}",
+                                    }
+                                )
+                                + "\n\n"
+                            )
+                            return
                         data = r.json()
                         msg_out = (data or {}).get("message", {}) or {}
                         tool_calls = msg_out.get("tool_calls") or []
@@ -1193,6 +1208,25 @@ async def chat(req: ChatRequest):
                             "stream": True,
                         },
                     ) as r:
+                        if r.status_code != 200:
+                            body = await r.aread()
+                            try:
+                                err = json.loads(body.decode("utf-8")).get(
+                                    "error"
+                                ) or body.decode("utf-8")[:500]
+                            except Exception:
+                                err = body.decode("utf-8", errors="replace")[:500]
+                            yield (
+                                "data: "
+                                + json.dumps(
+                                    {
+                                        "type": "error",
+                                        "message": f"Ollama {r.status_code}: {err}",
+                                    }
+                                )
+                                + "\n\n"
+                            )
+                            return
                         async for line in r.aiter_lines():
                             if not line:
                                 continue
@@ -1200,6 +1234,18 @@ async def chat(req: ChatRequest):
                                 chunk = json.loads(line)
                             except json.JSONDecodeError:
                                 continue
+                            if chunk.get("error"):
+                                yield (
+                                    "data: "
+                                    + json.dumps(
+                                        {
+                                            "type": "error",
+                                            "message": f"Ollama: {chunk['error']}",
+                                        }
+                                    )
+                                    + "\n\n"
+                                )
+                                return
                             msg = chunk.get("message", {}) or {}
                             token = msg.get("content", "")
                             if token:
