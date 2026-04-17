@@ -4,6 +4,7 @@ const SESSIONS_KEY = "ollama-mempalace.sessions.v1";
 const ACTIVE_KEY = "ollama-mempalace.activeSession";
 const PREFS_KEY = "ollama-mempalace.prefs.v1";
 const WING_PROMPT_KEY = "ollama-mempalace.wing_prompts.v1";
+const KNOWN_WINGS_KEY = "ollama-mempalace.knownWings.v1";
 const ONBOARDED_KEY = "ollama-mempalace.onboarded";
 
 function uuid() {
@@ -44,9 +45,22 @@ const state = {
     showMemory: false,
   }),
   wingPrompts: loadJSON(WING_PROMPT_KEY, {}),
+  knownWings: loadJSON(KNOWN_WINGS_KEY, ["personal"]),
   wings: [],
   models: [],
 };
+
+function rememberWing(name) {
+  if (name && !state.knownWings.includes(name)) {
+    state.knownWings.push(name);
+    saveJSON(KNOWN_WINGS_KEY, state.knownWings);
+  }
+}
+
+function forgetWing(name) {
+  state.knownWings = state.knownWings.filter((w) => w !== name);
+  saveJSON(KNOWN_WINGS_KEY, state.knownWings);
+}
 
 const els = {
   sidebar: $("sidebar"),
@@ -322,16 +336,28 @@ async function loadModels() {
 }
 
 function populateWingSelect(select, desired) {
-  let opts = state.wings.map(
-    (w) =>
-      `<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)} (${w.drawer_count})</option>`,
+  // Union of wings the API knows about (have drawers) and wings the user
+  // has created in this browser (no drawers yet but should still be selectable).
+  const apiNames = new Set(state.wings.map((w) => w.name));
+  const apiOpts = state.wings.map((w) => ({
+    name: w.name,
+    label: `${w.name} (${w.drawer_count})`,
+  }));
+  const knownOnlyOpts = state.knownWings
+    .filter((n) => !apiNames.has(n))
+    .map((n) => ({ name: n, label: `${n} (empty)` }));
+  const all = [...apiOpts, ...knownOnlyOpts].sort((a, b) =>
+    a.name.localeCompare(b.name),
   );
-  if (desired && !state.wings.some((w) => w.name === desired)) {
-    opts.unshift(
-      `<option value="${escapeHtml(desired)}">${escapeHtml(desired)} (new)</option>`,
-    );
+  if (desired && !all.some((o) => o.name === desired)) {
+    all.unshift({ name: desired, label: `${desired} (new)` });
   }
-  select.innerHTML = opts.join("");
+  select.innerHTML = all
+    .map(
+      (o) =>
+        `<option value="${escapeHtml(o.name)}">${escapeHtml(o.label)}</option>`,
+    )
+    .join("");
   if (desired) select.value = desired;
 }
 
@@ -351,7 +377,10 @@ async function loadWings(preferred) {
     const r = await fetch("/api/wings");
     const data = await r.json();
     state.wings = data.wings || [];
+    // Any wing returned by the API is by definition known.
+    for (const w of state.wings) rememberWing(w.name);
     const desired = preferred || state.prefs.wing || "personal";
+    rememberWing(desired);
     populateWingSelect(els.wing, desired);
     populateWingSelect(els.topbarWing, desired);
   } catch (e) {
@@ -585,19 +614,20 @@ async function renameWing() {
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
     setStatus(`renamed ${data.renamed} drawers`, "ok");
-    // Migrate per-wing prompt and any sessions on this wing
+    const newName = next.trim();
+    forgetWing(old);
+    rememberWing(newName);
     if (state.wingPrompts[old]) {
-      state.wingPrompts[next.trim()] = state.wingPrompts[old];
+      state.wingPrompts[newName] = state.wingPrompts[old];
       delete state.wingPrompts[old];
       saveJSON(WING_PROMPT_KEY, state.wingPrompts);
     }
     for (const s of state.sessions) {
-      if (s.wing === old) s.wing = next.trim();
+      if (s.wing === old) s.wing = newName;
     }
     saveJSON(SESSIONS_KEY, state.sessions);
-    await loadWings(next.trim());
-    loadWingPromptForCurrent();
-    savePrefs();
+    await loadWings(newName);
+    setCurrentWing(newName);
     renderSessions();
   } catch (e) {
     setStatus(`rename failed: ${e.message}`, "err");
@@ -619,10 +649,11 @@ async function deleteWing() {
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
     setStatus(`deleted ${data.deleted} drawers from ${name}`, "warn");
+    forgetWing(name);
     delete state.wingPrompts[name];
     saveJSON(WING_PROMPT_KEY, state.wingPrompts);
     await loadWings("personal");
-    loadWingPromptForCurrent();
+    setCurrentWing("personal");
   } catch (e) {
     setStatus(`delete failed: ${e.message}`, "err");
   }
@@ -718,10 +749,13 @@ els.topbarRoom.addEventListener("change", () =>
 );
 
 async function newWingFlow() {
-  const name = prompt("New wing name (will be created on first save)");
+  const name = prompt("New wing name");
   if (!name) return;
-  await loadWings(name.trim());
-  setCurrentWing(name.trim());
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  rememberWing(trimmed);
+  await loadWings(trimmed);
+  setCurrentWing(trimmed);
 }
 
 els.wingNew.addEventListener("click", newWingFlow);
