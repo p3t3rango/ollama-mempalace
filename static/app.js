@@ -7,6 +7,10 @@ const WING_PROMPT_KEY = "ollama-mempalace.wing_prompts.v1";
 const KNOWN_WINGS_KEY = "ollama-mempalace.knownWings.v1";
 const ONBOARDED_KEY = "ollama-mempalace.onboarded";
 
+// Bump when defaults change. Resets behavior toggles to their declared defaults
+// without nuking the rest of the user's prefs (model, wing, room, etc.).
+const PREFS_DEFAULTS_VERSION = 2;
+
 function uuid() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
@@ -1939,14 +1943,21 @@ if (els.wingPromptPicker) {
 
 (async function init() {
   setStatus("loading…", "");
-  // Treat missing keys as default-on so older saved prefs from before each
-  // toggle existed don't silently leave features off.
+  // One-time migration: prefs from earlier sessions may have stored
+  // recall/save/etc. as false. The empty-state text promises these are
+  // on by default, so reset them once when the defaults version changes.
+  if ((state.prefs.defaultsVersion || 0) < PREFS_DEFAULTS_VERSION) {
+    state.prefs.recall = true;
+    state.prefs.save = true;
+    state.prefs.extract = true;
+    state.prefs.identity = true;
+    state.prefs.defaultsVersion = PREFS_DEFAULTS_VERSION;
+  }
   els.tRecall.checked = state.prefs.recall !== false;
   els.tSave.checked = state.prefs.save !== false;
   els.tExtract.checked = state.prefs.extract !== false;
   els.tIdentity.checked = state.prefs.identity !== false;
   if (els.tTools) els.tTools.checked = !!state.prefs.tools;
-  // Keep stored state in sync with what we just rendered.
   state.prefs.recall = els.tRecall.checked;
   state.prefs.save = els.tSave.checked;
   state.prefs.extract = els.tExtract.checked;
