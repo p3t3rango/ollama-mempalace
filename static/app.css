@@ -1035,50 +1035,68 @@ textarea::placeholder {
   display: none;
 }
 
+/* Thinking indicator — small pill by default, expands to a scrollable block. */
 .msg-thinking {
-  display: block;
-  margin-bottom: 8px;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.02);
-  border-left: 2px solid var(--border-2);
-  border-radius: 4px;
-  font-size: 12px;
-  color: var(--fg-muted);
+  display: inline-block;
+  margin: 2px 0 8px;
 }
 
 .msg-thinking summary {
+  list-style: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
+  font-size: 11px;
   color: var(--fg-muted);
-  padding: 2px 0;
+  padding: 3px 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
 }
 
-.msg-thinking summary::-webkit-details-marker {
+.msg-thinking summary::-webkit-details-marker,
+.msg-thinking summary::marker {
   display: none;
+  content: "";
 }
 
-.msg-thinking[open] summary::before {
-  content: "▾ ";
+.msg-thinking summary:hover {
+  background: var(--bg-2);
+  color: var(--fg-dim);
+  border-color: var(--border-2);
 }
 
-.msg-thinking:not([open]) summary::before {
-  content: "▸ ";
+.think-count {
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+
+.msg-thinking[open] {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.msg-thinking[open] summary {
+  margin-bottom: 6px;
 }
 
 .msg-thinking .thinking-body {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--border);
+  display: block;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid var(--border-2);
+  border-radius: 4px;
   font-style: italic;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.55;
   white-space: pre-wrap;
   word-wrap: break-word;
-  max-height: 320px;
+  max-height: 360px;
   overflow-y: auto;
-  opacity: 0.8;
+  color: var(--fg-dim);
 }
 
 .msg .msg-attachments {

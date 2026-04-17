@@ -366,9 +366,16 @@ function renderMessages() {
             .map((a) => escapeHtml(a))
             .join(", ")}</div>`
         : "";
-    const thinkingTag = m.thinking && m.thinking.trim()
-      ? `<details class="msg-thinking" ${m.content ? "" : "open"}><summary>💭 thinking</summary><div class="thinking-body">${escapeHtml(m.thinking)}</div></details>`
-      : "";
+    let thinkingTag = "";
+    const think = (m.thinking || "").trim();
+    if (think) {
+      const words = think.split(/\s+/).filter(Boolean).length;
+      const stillThinking = !(m.content && m.content.trim());
+      const label = stillThinking
+        ? `thinking… <span class="think-count">${words}w</span>`
+        : `thought for ${words} words`;
+      thinkingTag = `<details class="msg-thinking"><summary>💭 ${label}</summary><div class="thinking-body">${escapeHtml(think)}</div></details>`;
+    }
     const toolsTag =
       m.toolCalls && m.toolCalls.length
         ? `<div class="tool-calls">${m.toolCalls
