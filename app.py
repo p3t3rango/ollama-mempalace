@@ -18,7 +18,14 @@ from pydantic import BaseModel, Field
 from mempalace.config import MempalaceConfig, sanitize_name
 from mempalace.general_extractor import extract_memories
 from mempalace.layers import MemoryStack
-from mempalace.mcp_server import tool_add_drawer
+from mempalace.mcp_server import (
+    tool_add_drawer,
+    tool_check_duplicate,
+    tool_delete_drawer,
+    tool_get_drawer,
+    tool_list_drawers,
+    tool_update_drawer,
+)
 from mempalace.palace import get_collection
 from mempalace.searcher import search_memories
 
@@ -66,6 +73,17 @@ class WingRenameBody(BaseModel):
 
 class IdentityBody(BaseModel):
     text: str
+
+
+class DrawerUpdate(BaseModel):
+    content: Optional[str] = None
+    wing: Optional[str] = None
+    room: Optional[str] = None
+
+
+class DupeCheckBody(BaseModel):
+    content: str
+    threshold: float = 0.9
 
 
 def _safe_collection():
@@ -261,6 +279,167 @@ async def list_attachments(wing: str):
             {"filename": n, "chunks": c} for n, c in sorted(counts.items())
         ]
     }
+
+
+@app.get("/api/stats")
+async def palace_stats():
+    col = _safe_collection()
+    if col is None:
+        return {"total": 0, "wings": {}, "rooms": {}, "palace_path": PALACE_PATH}
+    try:
+        all_meta = col.get(include=["metadatas"]).get("metadatas") or []
+    except Exception as e:
+        return {"total": 0, "wings": {}, "rooms": {}, "error": str(e)}
+    wings: dict[str, int] = {}
+    rooms: dict[str, int] = {}
+    for m in all_meta:
+        w = (m or {}).get("wing", "unknown")
+        r = (m or {}).get("room", "unknown")
+        wings[w] = wings.get(w, 0) + 1
+        rooms[r] = rooms.get(r, 0) + 1
+    try:
+        total = col.count()
+    except Exception:
+        total = len(all_meta)
+    return {
+        "total": total,
+        "wings": wings,
+        "rooms": rooms,
+        "palace_path": PALACE_PATH,
+    }
+
+
+@app.get("/api/taxonomy")
+async def palace_taxonomy():
+    col = _safe_collection()
+    if col is None:
+        return {"taxonomy": {}}
+    try:
+        all_meta = col.get(include=["metadatas"]).get("metadatas") or []
+    except Exception as e:
+        return {"taxonomy": {}, "error": str(e)}
+    tax: dict[str, dict[str, int]] = {}
+    for m in all_meta:
+        w = (m or {}).get("wing", "unknown")
+        r = (m or {}).get("room", "unknown")
+        tax.setdefault(w, {})
+        tax[w][r] = tax[w].get(r, 0) + 1
+    return {"taxonomy": tax}
+
+
+@app.get("/api/drawers")
+async def list_drawers(
+    wing: Optional[str] = None,
+    room: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    col = _safe_collection()
+    if col is None:
+        return {"drawers": [], "total": 0, "offset": offset, "limit": limit}
+    where = None
+    conditions = []
+    if wing:
+        conditions.append({"wing": wing})
+    if room:
+        conditions.append({"room": room})
+    if len(conditions) == 1:
+        where = conditions[0]
+    elif len(conditions) > 1:
+        where = {"$and": conditions}
+
+    try:
+        kwargs = {"include": ["documents", "metadatas"]}
+        if where:
+            kwargs["where"] = where
+        result = col.get(**kwargs)
+    except Exception as e:
+        return {"drawers": [], "total": 0, "error": str(e)}
+
+    ids = result.get("ids") or []
+    docs = result.get("documents") or []
+    metas = result.get("metadatas") or []
+
+    rows = []
+    needle = (q or "").lower().strip()
+    for i, did in enumerate(ids):
+        doc = docs[i] if i < len(docs) else ""
+        meta = metas[i] if i < len(metas) else {}
+        if needle and needle not in doc.lower():
+            continue
+        rows.append(
+            {
+                "drawer_id": did,
+                "wing": (meta or {}).get("wing", ""),
+                "room": (meta or {}).get("room", ""),
+                "source_file": (meta or {}).get("source_file", ""),
+                "filed_at": (meta or {}).get("filed_at", ""),
+                "added_by": (meta or {}).get("added_by", ""),
+                "preview": doc[:300] + ("…" if len(doc) > 300 else ""),
+                "length": len(doc),
+            }
+        )
+    rows.sort(key=lambda r: r["filed_at"], reverse=True)
+    total = len(rows)
+    return {
+        "drawers": rows[offset : offset + limit],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@app.get("/api/drawers/{drawer_id}")
+async def get_drawer(drawer_id: str):
+    return tool_get_drawer(drawer_id)
+
+
+@app.patch("/api/drawers/{drawer_id}")
+async def update_drawer(drawer_id: str, body: DrawerUpdate):
+    return tool_update_drawer(
+        drawer_id, content=body.content, wing=body.wing, room=body.room
+    )
+
+
+@app.delete("/api/drawers/{drawer_id}")
+async def delete_drawer(drawer_id: str):
+    return tool_delete_drawer(drawer_id)
+
+
+@app.post("/api/check-duplicate")
+async def check_dupe(body: DupeCheckBody):
+    return tool_check_duplicate(body.content, body.threshold)
+
+
+@app.get("/api/recent")
+async def recent_activity(limit: int = 20):
+    col = _safe_collection()
+    if col is None:
+        return {"recent": []}
+    try:
+        result = col.get(include=["metadatas", "documents"])
+    except Exception as e:
+        return {"recent": [], "error": str(e)}
+    ids = result.get("ids") or []
+    metas = result.get("metadatas") or []
+    docs = result.get("documents") or []
+    rows = []
+    for i, did in enumerate(ids):
+        meta = metas[i] if i < len(metas) else {}
+        doc = docs[i] if i < len(docs) else ""
+        rows.append(
+            {
+                "drawer_id": did,
+                "wing": (meta or {}).get("wing", ""),
+                "room": (meta or {}).get("room", ""),
+                "filed_at": (meta or {}).get("filed_at", ""),
+                "added_by": (meta or {}).get("added_by", ""),
+                "preview": doc[:200] + ("…" if len(doc) > 200 else ""),
+            }
+        )
+    rows.sort(key=lambda r: r["filed_at"], reverse=True)
+    return {"recent": rows[:limit]}
 
 
 @app.delete("/api/wings/{wing}/attachments")

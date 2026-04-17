@@ -70,6 +70,7 @@ const els = {
   newChat: $("new-chat"),
   newIncognito: $("new-incognito"),
   anonBanner: $("anon-banner"),
+  openMemory: $("open-memory"),
   openSettings: $("open-settings"),
   sessions: $("sessions"),
   toggleWingFilter: $("toggle-wing-filter"),
@@ -114,6 +115,19 @@ const els = {
   refreshWakeup: $("refresh-wakeup"),
   wakeupTokens: $("wakeup-tokens"),
   wakeupText: $("wakeup-text"),
+  memoryOverlay: $("memory-overlay"),
+  closeMemoryModal: $("close-memory-modal"),
+  statsContent: $("stats-content"),
+  taxonomyContent: $("taxonomy-content"),
+  recentContent: $("recent-content"),
+  browserWing: $("browser-wing"),
+  browserRoom: $("browser-room"),
+  browserQ: $("browser-q"),
+  browserReload: $("browser-reload"),
+  browserList: $("browser-list"),
+  browserPrev: $("browser-prev"),
+  browserNext: $("browser-next"),
+  browserPage: $("browser-page"),
 };
 
 function savePrefs() {
@@ -916,6 +930,344 @@ window.addEventListener("drop", async (e) => {
   els.dragOverlay.hidden = true;
   els.chatArea.classList.remove("drag-over");
   await uploadFiles(e.dataTransfer.files);
+});
+
+/* ─── Memory modal ────────────────────────────────────────────────────── */
+
+const browserState = { offset: 0, limit: 50, total: 0 };
+
+function fmtTime(iso) {
+  if (!iso) return "?";
+  try {
+    const d = new Date(iso);
+    return (
+      d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+      " " +
+      d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    );
+  } catch {
+    return iso;
+  }
+}
+
+async function loadStats() {
+  els.statsContent.innerHTML = '<div class="muted">loading…</div>';
+  try {
+    const r = await fetch("/api/stats");
+    const data = await r.json();
+    const wingsArr = Object.entries(data.wings || {}).sort((a, b) => b[1] - a[1]);
+    const roomsArr = Object.entries(data.rooms || {}).sort((a, b) => b[1] - a[1]);
+    const maxW = Math.max(1, ...wingsArr.map((w) => w[1]));
+    const maxR = Math.max(1, ...roomsArr.map((r) => r[1]));
+    const wingsCount = Object.keys(data.wings || {}).length;
+    const roomsCount = Object.keys(data.rooms || {}).length;
+    els.statsContent.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="label">total drawers</div>
+          <div class="value">${data.total ?? 0}</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">wings</div>
+          <div class="value">${wingsCount}</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">rooms</div>
+          <div class="value">${roomsCount}</div>
+        </div>
+      </div>
+      <div class="stats-section">
+        <h4>Wings (top 10)</h4>
+        ${wingsArr
+          .slice(0, 10)
+          .map(
+            ([name, count]) => `
+          <div class="bar-row">
+            <span class="bar-name">${escapeHtml(name)}</span>
+            <span class="bar-track"><span class="bar-fill" style="width:${(count / maxW) * 100}%"></span></span>
+            <span class="bar-count">${count}</span>
+          </div>
+        `,
+          )
+          .join("")}
+      </div>
+      <div class="stats-section">
+        <h4>Rooms (top 10)</h4>
+        ${roomsArr
+          .slice(0, 10)
+          .map(
+            ([name, count]) => `
+          <div class="bar-row">
+            <span class="bar-name">${escapeHtml(name)}</span>
+            <span class="bar-track"><span class="bar-fill" style="width:${(count / maxR) * 100}%"></span></span>
+            <span class="bar-count">${count}</span>
+          </div>
+        `,
+          )
+          .join("")}
+      </div>
+      <div class="muted" style="margin-top:14px">palace path: <code>${escapeHtml(data.palace_path || "")}</code></div>
+    `;
+  } catch (e) {
+    els.statsContent.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadTaxonomy() {
+  els.taxonomyContent.innerHTML = '<div class="muted">loading…</div>';
+  try {
+    const r = await fetch("/api/taxonomy");
+    const data = await r.json();
+    const tax = data.taxonomy || {};
+    const keys = Object.keys(tax).sort();
+    if (!keys.length) {
+      els.taxonomyContent.innerHTML =
+        '<div class="muted">No drawers yet. Send a message or attach a file to get started.</div>';
+      return;
+    }
+    els.taxonomyContent.innerHTML = keys
+      .map((wing) => {
+        const rooms = tax[wing] || {};
+        const roomEntries = Object.entries(rooms).sort((a, b) => b[1] - a[1]);
+        const total = roomEntries.reduce((s, [, c]) => s + c, 0);
+        return `
+        <div class="tax-wing">
+          <div class="tax-wing-name">
+            <span>${escapeHtml(wing)}</span>
+            <span class="tax-wing-count">${total} drawers</span>
+          </div>
+          <div class="tax-rooms">
+            ${roomEntries
+              .map(
+                ([r, c]) =>
+                  `<div class="tax-room"><span>${escapeHtml(r)}</span><span>${c}</span></div>`,
+              )
+              .join("")}
+          </div>
+        </div>
+      `;
+      })
+      .join("");
+  } catch (e) {
+    els.taxonomyContent.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadRecent() {
+  els.recentContent.innerHTML = '<div class="muted">loading…</div>';
+  try {
+    const r = await fetch("/api/recent?limit=30");
+    const data = await r.json();
+    const rows = data.recent || [];
+    if (!rows.length) {
+      els.recentContent.innerHTML =
+        '<div class="muted">No recent activity.</div>';
+      return;
+    }
+    els.recentContent.innerHTML = rows
+      .map(
+        (row) => `
+      <div class="recent-row">
+        <div class="when">${fmtTime(row.filed_at)} · ${escapeHtml(row.added_by || "?")}</div>
+        <div class="where">${escapeHtml(row.wing)} / ${escapeHtml(row.room)}</div>
+        <div class="preview">${escapeHtml(row.preview || "")}</div>
+      </div>
+    `,
+      )
+      .join("");
+  } catch (e) {
+    els.recentContent.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function populateBrowserWingFilter() {
+  els.browserWing.innerHTML =
+    `<option value="">all wings</option>` +
+    state.wings
+      .map(
+        (w) =>
+          `<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)} (${w.drawer_count})</option>`,
+      )
+      .join("");
+}
+
+async function loadBrowser() {
+  const wing = els.browserWing.value || undefined;
+  const room = els.browserRoom.value.trim() || undefined;
+  const q = els.browserQ.value.trim() || undefined;
+  const params = new URLSearchParams();
+  if (wing) params.set("wing", wing);
+  if (room) params.set("room", room);
+  if (q) params.set("q", q);
+  params.set("limit", String(browserState.limit));
+  params.set("offset", String(browserState.offset));
+  els.browserList.innerHTML = '<div class="muted">loading…</div>';
+  try {
+    const r = await fetch(`/api/drawers?${params.toString()}`);
+    const data = await r.json();
+    browserState.total = data.total || 0;
+    const rows = data.drawers || [];
+    if (!rows.length) {
+      els.browserList.innerHTML =
+        '<div class="muted">No drawers match these filters.</div>';
+    } else {
+      els.browserList.innerHTML = "";
+      for (const row of rows) {
+        const card = document.createElement("div");
+        card.className = "drawer-row";
+        card.innerHTML = `
+          <div class="meta-line">
+            <span>${escapeHtml(row.wing)} / ${escapeHtml(row.room)}</span>
+            <span>${fmtTime(row.filed_at)} · ${row.length}c · ${escapeHtml(row.added_by || "?")}</span>
+          </div>
+          <div class="preview">${escapeHtml(row.preview || "")}</div>
+          <div class="edit-area">
+            <textarea></textarea>
+            <div class="edit-row">
+              <span class="muted">wing</span>
+              <input class="edit-wing" value="${escapeHtml(row.wing)}" />
+              <span class="muted">room</span>
+              <input class="edit-room" value="${escapeHtml(row.room)}" />
+              <button class="primary save-btn" type="button">save</button>
+              <button class="danger del-btn" type="button">delete</button>
+              <span class="muted edit-status"></span>
+            </div>
+          </div>
+        `;
+        let loadedFull = false;
+        card.addEventListener("click", async (e) => {
+          if (
+            e.target.tagName === "TEXTAREA" ||
+            e.target.tagName === "INPUT" ||
+            e.target.tagName === "BUTTON"
+          )
+            return;
+          const wasExpanded = card.classList.toggle("expanded");
+          if (wasExpanded && !loadedFull) {
+            const ta = card.querySelector("textarea");
+            ta.value = "loading…";
+            try {
+              const dr = await fetch(
+                `/api/drawers/${encodeURIComponent(row.drawer_id)}`,
+              );
+              const dd = await dr.json();
+              ta.value = dd.content || dd.error || "";
+              loadedFull = true;
+            } catch (err) {
+              ta.value = `error: ${err.message}`;
+            }
+          }
+        });
+        card.querySelector(".save-btn").addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const ta = card.querySelector("textarea");
+          const ewing = card.querySelector(".edit-wing").value.trim();
+          const eroom = card.querySelector(".edit-room").value.trim();
+          const status = card.querySelector(".edit-status");
+          status.textContent = "saving…";
+          try {
+            const r = await fetch(
+              `/api/drawers/${encodeURIComponent(row.drawer_id)}`,
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  content: ta.value,
+                  wing: ewing || undefined,
+                  room: eroom || undefined,
+                }),
+              },
+            );
+            const d = await r.json();
+            if (!r.ok || d.success === false)
+              throw new Error(d.error || d.detail || "failed");
+            status.textContent = "saved";
+            setTimeout(() => (status.textContent = ""), 2000);
+            loadWings(state.prefs.wing);
+          } catch (err) {
+            status.textContent = `error: ${err.message}`;
+          }
+        });
+        card.querySelector(".del-btn").addEventListener("click", async (e) => {
+          e.stopPropagation();
+          if (!confirm("Delete this drawer? This cannot be undone."))
+            return;
+          try {
+            const r = await fetch(
+              `/api/drawers/${encodeURIComponent(row.drawer_id)}`,
+              { method: "DELETE" },
+            );
+            const d = await r.json();
+            if (!r.ok || d.success === false)
+              throw new Error(d.error || d.detail || "failed");
+            card.remove();
+            loadWings(state.prefs.wing);
+          } catch (err) {
+            alert(`delete failed: ${err.message}`);
+          }
+        });
+        els.browserList.appendChild(card);
+      }
+    }
+    const start = browserState.offset + 1;
+    const end = browserState.offset + rows.length;
+    els.browserPage.textContent = `${start}-${end} of ${browserState.total}`;
+    els.browserPrev.disabled = browserState.offset <= 0;
+    els.browserNext.disabled =
+      browserState.offset + browserState.limit >= browserState.total;
+  } catch (e) {
+    els.browserList.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.tab === name);
+  });
+  document.querySelectorAll(".tab-pane").forEach((p) => {
+    p.hidden = p.dataset.tab !== name;
+  });
+  if (name === "stats") loadStats();
+  else if (name === "taxonomy") loadTaxonomy();
+  else if (name === "recent") loadRecent();
+  else if (name === "browser") {
+    populateBrowserWingFilter();
+    loadBrowser();
+  }
+}
+
+document.querySelectorAll(".tab").forEach((t) => {
+  t.addEventListener("click", () => switchTab(t.dataset.tab));
+});
+
+els.openMemory.addEventListener("click", () => {
+  els.memoryOverlay.hidden = false;
+  switchTab("stats");
+});
+els.closeMemoryModal.addEventListener("click", () => {
+  els.memoryOverlay.hidden = true;
+});
+els.memoryOverlay.addEventListener("click", (e) => {
+  if (e.target === els.memoryOverlay) els.memoryOverlay.hidden = true;
+});
+
+els.browserReload.addEventListener("click", () => {
+  browserState.offset = 0;
+  loadBrowser();
+});
+els.browserPrev.addEventListener("click", () => {
+  browserState.offset = Math.max(0, browserState.offset - browserState.limit);
+  loadBrowser();
+});
+els.browserNext.addEventListener("click", () => {
+  browserState.offset += browserState.limit;
+  loadBrowser();
+});
+[els.browserWing, els.browserRoom, els.browserQ].forEach((el) => {
+  el.addEventListener("change", () => {
+    browserState.offset = 0;
+    loadBrowser();
+  });
 });
 
 els.saveIdentity.addEventListener("click", saveIdentity);
