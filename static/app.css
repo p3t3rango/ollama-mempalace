@@ -641,6 +641,12 @@ button {
   font-family: var(--sans);
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: var(--fg-muted);
+  opacity: 1;
+}
+
 .browser-toolbar input {
   flex: 1;
 }
