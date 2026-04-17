@@ -111,6 +111,10 @@ const els = {
   saveIdentity: $("save-identity"),
   resetIdentity: $("reset-identity"),
   identityStatus: $("identity-status"),
+  welcomeOverlay: $("welcome-overlay"),
+  welcomeName: $("welcome-name"),
+  welcomeContinue: $("welcome-continue"),
+  welcomeSkip: $("welcome-skip"),
   wing: $("wing"),
   wingNew: $("wing-new"),
   wingRename: $("wing-rename"),
@@ -1912,6 +1916,41 @@ els.browserNext.addEventListener("click", () => {
 
 els.saveIdentity.addEventListener("click", saveIdentity);
 els.resetIdentity.addEventListener("click", resetIdentity);
+
+async function finishWelcome(name) {
+  localStorage.setItem(ONBOARDED_KEY, String(Date.now()));
+  els.welcomeOverlay.hidden = true;
+  if (!name) return;
+  const identity = DEFAULT_IDENTITY.replace(/\*your name\*/g, name);
+  try {
+    await fetch("/api/identity", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: identity }),
+    });
+    setStatus(`welcome, ${name}`, "ok");
+  } catch (e) {
+    setStatus(`saved welcome but identity write failed: ${e.message}`, "warn");
+  }
+}
+
+els.welcomeContinue.addEventListener("click", async () => {
+  const name = els.welcomeName.value.trim();
+  if (!name) {
+    els.welcomeName.focus();
+    return;
+  }
+  await finishWelcome(name);
+});
+
+els.welcomeName.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    els.welcomeContinue.click();
+  }
+});
+
+els.welcomeSkip.addEventListener("click", () => finishWelcome(""));
 els.refreshWakeup.addEventListener("click", loadWakeup);
 
 els.wing.addEventListener("change", () => setCurrentWing(els.wing.value));
@@ -1992,12 +2031,21 @@ if (els.wingPromptPicker) {
     els.palaceLabel.textContent = h.palace_path;
   } catch {}
 
-  // First-run: open settings once so the user can set identity. Mark seen
-  // either way so it never auto-opens again, even if they close it without
-  // saving.
+  // First-run: if the user has never been onboarded AND there's no identity
+  // saved yet, pop the welcome step to collect their name.
   if (!localStorage.getItem(ONBOARDED_KEY)) {
-    localStorage.setItem(ONBOARDED_KEY, String(Date.now()));
-    openSettings();
+    let hasIdentity = false;
+    try {
+      const r = await fetch("/api/identity");
+      const d = await r.json();
+      hasIdentity = !!(d.text && d.text.trim());
+    } catch {}
+    if (!hasIdentity) {
+      els.welcomeOverlay.hidden = false;
+      setTimeout(() => els.welcomeName.focus(), 50);
+    } else {
+      localStorage.setItem(ONBOARDED_KEY, String(Date.now()));
+    }
   }
 
   setStatus("ready", "ok");

@@ -517,7 +517,8 @@ button {
 
 /* ─── Memory overlay & tabs ───────────────────────────────────────────── */
 
-#memory-overlay {
+#memory-overlay,
+#welcome-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
@@ -525,6 +526,24 @@ button {
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+.welcome-panel {
+  width: 480px;
+  max-width: 92vw;
+  height: auto;
+  max-height: 90vh;
+}
+
+.welcome-panel .settings-body p {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 6px;
+}
+
+.welcome-panel input {
+  font-size: 15px;
+  padding: 10px 12px;
 }
 
 .memory-panel {

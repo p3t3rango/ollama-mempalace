@@ -309,6 +309,33 @@
       </div>
     </div>
 
+    <!-- Welcome / onboarding overlay -->
+    <div id="welcome-overlay" hidden>
+      <div class="settings-panel welcome-panel">
+        <header>
+          <h2>Welcome</h2>
+        </header>
+        <div class="settings-body">
+          <p>
+            This is your local AI with memory. It remembers what you tell it
+            across conversations — everything stays on your Mac, nothing leaves.
+          </p>
+          <div class="field" style="margin: 20px 0 10px; min-width: 0">
+            <span class="field-label">What should I call you?</span>
+            <input id="welcome-name" type="text" placeholder="your name" autocomplete="off" />
+          </div>
+          <p class="muted">
+            I'll use this in the default identity prompt. You can customize the
+            full identity, add context, and change any behavior later in Settings.
+          </p>
+          <div class="row" style="margin-top: 18px">
+            <button id="welcome-continue" class="primary" type="button">Continue</button>
+            <button id="welcome-skip" class="ghost" type="button">Skip for now</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Memory overlay -->
     <div id="memory-overlay" hidden>
       <div class="settings-panel memory-panel">
