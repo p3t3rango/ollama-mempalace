@@ -625,20 +625,10 @@ button {
 /* Browser */
 .browser-toolbar {
   display: flex;
-  gap: 6px;
+  gap: 10px;
   margin-bottom: 10px;
-  align-items: center;
-}
-
-.browser-toolbar select,
-.browser-toolbar input {
-  background: var(--bg-3);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  font-size: 12px;
-  font-family: var(--sans);
+  align-items: flex-end;
+  flex-wrap: wrap;
 }
 
 input::placeholder,
@@ -647,8 +637,38 @@ textarea::placeholder {
   opacity: 1;
 }
 
-.browser-toolbar input {
+/* Shared labeled-field helper — use wherever an input would be ambiguous. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 100px;
+}
+
+.field-grow {
   flex: 1;
+  min-width: 160px;
+}
+
+.field-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--fg-muted);
+  font-weight: 500;
+}
+
+.field select,
+.field input,
+.field textarea {
+  background: var(--bg-3);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--sans);
+  width: 100%;
 }
 
 #browser-list {
