@@ -250,8 +250,10 @@ button {
   min-width: 0;
 }
 
-.topbar-context .sep {
+.topbar-label {
   color: var(--fg-muted);
+  font-size: 12px;
+  letter-spacing: 0.4px;
 }
 
 .topbar-pick {

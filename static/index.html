@@ -45,9 +45,8 @@
           </svg>
         </button>
         <div class="topbar-context">
-          <select id="topbar-wing" class="topbar-pick" title="Wing"></select>
-          <span class="sep">/</span>
-          <input id="topbar-room" class="topbar-pick room" type="text" title="Room" />
+          <span class="topbar-label">Wing:</span>
+          <select id="topbar-wing" class="topbar-pick" title="Switch wing"></select>
           <button id="topbar-wing-new" class="icon-btn small" title="New wing">＋</button>
         </div>
         <button id="toggle-memory-pane" class="icon-btn" title="Memory hits">🧠</button>
@@ -143,11 +142,12 @@
                 </div>
               </label>
               <label>
-                Room
+                Room (advanced)
                 <span class="caption">
-                  A facet inside the wing — for a project: <code>auth</code>, <code>gameplay</code>,
-                  <code>billing</code>. Auto-extracted facts land in <code>facts_&lt;type&gt;</code>
-                  rooms automatically.
+                  Rooms are usually automatic — auto-extracted facts file themselves into
+                  <code>facts_&lt;type&gt;</code> rooms, and project mining derives rooms from
+                  folder structure. Manual chat exchanges save to the catch-all room you set
+                  here. Most people leave this as <code>general</code>.
                 </span>
                 <input id="room" type="text" value="general" />
               </label>
