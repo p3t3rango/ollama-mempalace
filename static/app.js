@@ -55,7 +55,9 @@ const els = {
   newChat: $("new-chat"),
   openSettings: $("open-settings"),
   sessions: $("sessions"),
-  sessionTitle: $("session-title"),
+  topbarWing: $("topbar-wing"),
+  topbarRoom: $("topbar-room"),
+  topbarWingNew: $("topbar-wing-new"),
   palaceLabel: $("palace-label"),
   emptyState: $("empty-state"),
   messages: $("messages"),
@@ -252,7 +254,6 @@ function ensureSession() {
 
 function renderMessages() {
   const s = getActiveSession();
-  els.sessionTitle.textContent = s ? `${s.wing} / ${s.room} · ${s.model}` : "";
   if (!s || !s.messages.length) {
     els.emptyState.hidden = false;
     els.messages.hidden = true;
@@ -320,12 +321,28 @@ async function loadModels() {
   }
 }
 
+function populateWingSelect(select, desired) {
+  let opts = state.wings.map(
+    (w) =>
+      `<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)} (${w.drawer_count})</option>`,
+  );
+  if (desired && !state.wings.some((w) => w.name === desired)) {
+    opts.unshift(
+      `<option value="${escapeHtml(desired)}">${escapeHtml(desired)} (new)</option>`,
+    );
+  }
+  select.innerHTML = opts.join("");
+  if (desired) select.value = desired;
+}
+
 function ensureWingOption(name) {
-  if (![...els.wing.options].some((o) => o.value === name)) {
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = `${name} (new)`;
-    els.wing.appendChild(opt);
+  for (const sel of [els.wing, els.topbarWing]) {
+    if (![...sel.options].some((o) => o.value === name)) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = `${name} (new)`;
+      sel.appendChild(opt);
+    }
   }
 }
 
@@ -335,20 +352,34 @@ async function loadWings(preferred) {
     const data = await r.json();
     state.wings = data.wings || [];
     const desired = preferred || state.prefs.wing || "personal";
-    let opts = state.wings.map(
-      (w) =>
-        `<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)} (${w.drawer_count})</option>`,
-    );
-    if (!state.wings.some((w) => w.name === desired)) {
-      opts.unshift(
-        `<option value="${escapeHtml(desired)}">${escapeHtml(desired)} (new)</option>`,
-      );
-    }
-    els.wing.innerHTML = opts.join("");
-    els.wing.value = desired;
+    populateWingSelect(els.wing, desired);
+    populateWingSelect(els.topbarWing, desired);
   } catch (e) {
     setStatus(`wings: ${e.message}`, "err");
   }
+}
+
+function setCurrentWing(name) {
+  ensureWingOption(name);
+  els.wing.value = name;
+  els.topbarWing.value = name;
+  state.prefs.wing = name;
+  const s = getActiveSession();
+  if (s) s.wing = name;
+  saveJSON(PREFS_KEY, state.prefs);
+  saveJSON(SESSIONS_KEY, state.sessions);
+  loadWingPromptForCurrent();
+  loadWakeup();
+}
+
+function setCurrentRoom(name) {
+  els.room.value = name;
+  els.topbarRoom.value = name;
+  state.prefs.room = name;
+  const s = getActiveSession();
+  if (s) s.room = name;
+  saveJSON(PREFS_KEY, state.prefs);
+  saveJSON(SESSIONS_KEY, state.sessions);
 }
 
 function loadWingPromptForCurrent() {
@@ -644,10 +675,12 @@ els.closeMemory.addEventListener("click", () => {
 });
 
 els.toggleSidebar.addEventListener("click", () => {
+  document.body.classList.add("no-sidebar");
   els.sidebar.classList.add("hidden");
   els.showSidebar.classList.remove("hidden");
 });
 els.showSidebar.addEventListener("click", () => {
+  document.body.classList.remove("no-sidebar");
   els.sidebar.classList.remove("hidden");
   els.showSidebar.classList.add("hidden");
 });
@@ -677,25 +710,28 @@ els.saveIdentity.addEventListener("click", saveIdentity);
 els.resetIdentity.addEventListener("click", resetIdentity);
 els.refreshWakeup.addEventListener("click", loadWakeup);
 
-els.wing.addEventListener("change", () => {
-  loadWingPromptForCurrent();
-  loadWakeup();
-  savePrefs();
-});
+els.wing.addEventListener("change", () => setCurrentWing(els.wing.value));
+els.topbarWing.addEventListener("change", () => setCurrentWing(els.topbarWing.value));
+els.room.addEventListener("change", () => setCurrentRoom(els.room.value || "general"));
+els.topbarRoom.addEventListener("change", () =>
+  setCurrentRoom(els.topbarRoom.value || "general"),
+);
 
-els.wingNew.addEventListener("click", async () => {
+async function newWingFlow() {
   const name = prompt("New wing name (will be created on first save)");
   if (!name) return;
   await loadWings(name.trim());
-  loadWingPromptForCurrent();
-  savePrefs();
-});
+  setCurrentWing(name.trim());
+}
+
+els.wingNew.addEventListener("click", newWingFlow);
+els.topbarWingNew.addEventListener("click", newWingFlow);
 
 els.wingRename.addEventListener("click", renameWing);
 els.wingDelete.addEventListener("click", deleteWing);
 
-[els.model, els.room, els.tRecall, els.tSave, els.tExtract, els.tIdentity].forEach(
-  (el) => el.addEventListener("change", savePrefs),
+[els.model, els.tRecall, els.tSave, els.tExtract, els.tIdentity].forEach((el) =>
+  el.addEventListener("change", savePrefs),
 );
 
 els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
@@ -713,6 +749,7 @@ els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
 
   await loadModels();
   await loadWings(state.prefs.wing);
+  els.topbarRoom.value = state.prefs.room || "general";
 
   ensureSession();
   renderMessages();

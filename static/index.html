@@ -28,7 +28,12 @@
     <main id="main">
       <header class="topbar">
         <button id="show-sidebar" class="icon-btn hidden" title="Show sidebar">⌷</button>
-        <div class="topbar-title" id="session-title"></div>
+        <div class="topbar-context">
+          <select id="topbar-wing" class="topbar-pick" title="Wing"></select>
+          <span class="sep">/</span>
+          <input id="topbar-room" class="topbar-pick room" type="text" title="Room" />
+          <button id="topbar-wing-new" class="icon-btn small" title="New wing">＋</button>
+        </div>
         <button id="toggle-memory-pane" class="icon-btn" title="Memory hits">🧠</button>
       </header>
 

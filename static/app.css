@@ -43,6 +43,10 @@ body {
   height: 100vh;
 }
 
+body.no-sidebar {
+  grid-template-columns: 0 1fr auto;
+}
+
 button {
   font-family: var(--sans);
   cursor: pointer;
@@ -229,14 +233,47 @@ button {
   gap: 8px;
 }
 
-.topbar-title {
+.topbar-context {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
   font-size: 13px;
   color: var(--fg-dim);
+  min-width: 0;
+}
+
+.topbar-context .sep {
+  color: var(--fg-muted);
+}
+
+.topbar-pick {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
   font-family: var(--mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-size: 13px;
+  max-width: 220px;
+}
+
+.topbar-pick:hover,
+.topbar-pick:focus {
+  background: var(--bg-3);
+  border-color: var(--border);
+  outline: none;
+}
+
+.topbar-pick.room {
+  width: 140px;
+}
+
+.icon-btn.small {
+  width: 26px;
+  height: 26px;
+  font-size: 14px;
 }
 
 #chat-area {
