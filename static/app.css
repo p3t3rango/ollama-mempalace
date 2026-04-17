@@ -135,6 +135,49 @@ button {
   text-align: center;
 }
 
+.sessions-filter {
+  padding: 4px 4px 8px;
+}
+
+.filter-pill {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  border-radius: 999px;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--mono);
+  text-align: left;
+}
+
+.filter-pill svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.filter-pill:hover {
+  background: var(--bg-3);
+  color: var(--fg);
+  border-color: var(--border-2);
+}
+
+.filter-pill .lbl {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filter-pill.filtered {
+  color: var(--ok);
+  border-color: rgba(95, 179, 124, 0.35);
+}
+
 .sessions {
   flex: 1;
   overflow-y: auto;

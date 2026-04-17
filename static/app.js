@@ -43,6 +43,7 @@ const state = {
     extract: true,
     identity: true,
     showMemory: false,
+    showAllWings: false,
   }),
   wingPrompts: loadJSON(WING_PROMPT_KEY, {}),
   knownWings: loadJSON(KNOWN_WINGS_KEY, ["personal"]),
@@ -69,6 +70,7 @@ const els = {
   newChat: $("new-chat"),
   openSettings: $("open-settings"),
   sessions: $("sessions"),
+  toggleWingFilter: $("toggle-wing-filter"),
   topbarWing: $("topbar-wing"),
   topbarWingNew: $("topbar-wing-new"),
   palaceLabel: $("palace-label"),
@@ -193,16 +195,34 @@ function setActive(id) {
 }
 
 function bucketSessionsByDate() {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const today0 = new Date();
+  const today = new Date(
+    today0.getFullYear(),
+    today0.getMonth(),
+    today0.getDate(),
+  ).getTime();
   const week = today - 6 * 86400000;
   const buckets = { Today: [], "This Week": [], Older: [] };
+  const wing = state.prefs.wing || "personal";
+  const showAll = !!state.prefs.showAllWings;
   for (const s of state.sessions) {
+    if (!showAll && s.wing !== wing) continue;
     if (s.updatedAt >= today) buckets.Today.push(s);
     else if (s.updatedAt >= week) buckets["This Week"].push(s);
     else buckets.Older.push(s);
   }
   return buckets;
+}
+
+function syncWingFilter() {
+  const lbl = els.toggleWingFilter.querySelector(".lbl");
+  if (state.prefs.showAllWings) {
+    lbl.textContent = "all wings";
+    els.toggleWingFilter.classList.remove("filtered");
+  } else {
+    lbl.textContent = state.prefs.wing || "personal";
+    els.toggleWingFilter.classList.add("filtered");
+  }
 }
 
 function renderSessions() {
@@ -398,6 +418,8 @@ function setCurrentWing(name) {
   saveJSON(SESSIONS_KEY, state.sessions);
   loadWingPromptForCurrent();
   loadWakeup();
+  syncWingFilter();
+  renderSessions();
 }
 
 function setCurrentRoom(name) {
@@ -690,6 +712,13 @@ els.newChat.addEventListener("click", () => {
   els.input.focus();
 });
 
+els.toggleWingFilter.addEventListener("click", () => {
+  state.prefs.showAllWings = !state.prefs.showAllWings;
+  saveJSON(PREFS_KEY, state.prefs);
+  syncWingFilter();
+  renderSessions();
+});
+
 els.composerRecall.addEventListener("click", () => {
   state.prefs.recall = !state.prefs.recall;
   els.tRecall.checked = state.prefs.recall;
@@ -780,6 +809,7 @@ els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
   await loadWings(state.prefs.wing);
 
   ensureSession();
+  syncWingFilter();
   renderMessages();
   renderHits([]);
 
