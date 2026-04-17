@@ -745,6 +745,13 @@ async def put_identity(body: IdentityBody):
     return {"ok": True, "bytes": len(body.text.encode("utf-8"))}
 
 
+@app.delete("/api/identity")
+async def delete_identity():
+    if IDENTITY_PATH.exists():
+        IDENTITY_PATH.unlink()
+    return {"ok": True}
+
+
 @app.get("/api/wakeup")
 async def get_wakeup(wing: Optional[str] = None):
     try:

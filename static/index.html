@@ -172,7 +172,8 @@
             <textarea id="identity" rows="8"></textarea>
             <div class="row">
               <button id="save-identity" class="primary">Save identity</button>
-              <button id="reset-identity" class="ghost">Reset to default</button>
+              <button id="reset-identity" class="ghost" title="Replace the textarea content with the default template (doesn't save until you click Save)">Reset to default</button>
+              <button id="redo-welcome" class="danger" title="Deletes identity.txt and clears the onboarded flag, then reloads so the welcome modal appears again">Redo welcome</button>
               <span id="identity-status" class="muted"></span>
             </div>
           </section>

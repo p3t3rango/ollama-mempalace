@@ -110,6 +110,7 @@ const els = {
   identity: $("identity"),
   saveIdentity: $("save-identity"),
   resetIdentity: $("reset-identity"),
+  redoWelcome: $("redo-welcome"),
   identityStatus: $("identity-status"),
   welcomeOverlay: $("welcome-overlay"),
   welcomeName: $("welcome-name"),
@@ -1916,6 +1917,24 @@ els.browserNext.addEventListener("click", () => {
 
 els.saveIdentity.addEventListener("click", saveIdentity);
 els.resetIdentity.addEventListener("click", resetIdentity);
+
+if (els.redoWelcome) {
+  els.redoWelcome.addEventListener("click", async () => {
+    if (
+      !confirm(
+        "Clear your saved identity and replay the welcome screen?\n\n" +
+          "This deletes ~/.mempalace/identity.txt and resets the onboarded flag. " +
+          "Your chats and memories are NOT affected.",
+      )
+    )
+      return;
+    try {
+      await fetch("/api/identity", { method: "DELETE" });
+    } catch {}
+    localStorage.removeItem(ONBOARDED_KEY);
+    location.reload();
+  });
+}
 
 async function finishWelcome(name) {
   localStorage.setItem(ONBOARDED_KEY, String(Date.now()));
