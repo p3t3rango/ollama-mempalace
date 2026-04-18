@@ -77,6 +77,95 @@ body.no-sidebar {
   grid-template-columns: 1fr auto;
 }
 
+/* ─── Responsive — phone / narrow tablet ─────────────────────────────── */
+@media (max-width: 768px) {
+  body {
+    grid-template-columns: 1fr;
+  }
+  #sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 82vw;
+    max-width: 320px;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease-out;
+    box-shadow: 0 0 32px rgba(0, 0, 0, 0.7);
+  }
+  body.mobile-sidebar-open #sidebar {
+    transform: translateX(0);
+  }
+  body.mobile-sidebar-open::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 40;
+  }
+  /* Hide the topbar "show sidebar" button — the sidebar's own toggle
+     is enough on mobile, and it's reachable via the hamburger we add. */
+  #show-sidebar {
+    display: inline-flex !important;
+  }
+  .topbar {
+    padding: 8px 10px;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .topbar-context {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+  /* Memory pane is too wide for mobile — hide it; user can still browse
+     via Memory modal which is responsive. */
+  #memory-pane {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: 92vw;
+    max-width: 360px;
+    z-index: 45;
+    box-shadow: 0 0 32px rgba(0, 0, 0, 0.7);
+  }
+  /* Modals fill more of the viewport */
+  .settings-panel,
+  .memory-panel {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    border-radius: 0;
+    border: none;
+  }
+  .settings-layout {
+    grid-template-columns: 132px 1fr;
+  }
+  .settings-tab {
+    font-size: 12px;
+    padding: 6px 8px;
+  }
+  /* Bigger touch targets for hoverable message actions */
+  .msg-actions {
+    opacity: 1;
+    position: static;
+    margin-top: 6px;
+  }
+  .msg-action {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+  /* Composer fits nicely already; just make it not crammed at edges */
+  #composer {
+    padding: 8px 8px 14px;
+  }
+  /* Ensure the messages region scrolls correctly on iOS Safari */
+  #chat-area {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 button {
   font-family: var(--sans);
   cursor: pointer;

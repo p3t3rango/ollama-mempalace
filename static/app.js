@@ -1525,15 +1525,42 @@ els.closeMemory.addEventListener("click", () => {
   els.memoryPane.hidden = true;
 });
 
+const isMobile = () => window.matchMedia("(max-width: 768px)").matches;
+
 els.toggleSidebar.addEventListener("click", () => {
+  if (isMobile()) {
+    document.body.classList.remove("mobile-sidebar-open");
+    return;
+  }
   document.body.classList.add("no-sidebar");
   els.sidebar.classList.add("hidden");
   els.showSidebar.classList.remove("hidden");
 });
 els.showSidebar.addEventListener("click", () => {
+  if (isMobile()) {
+    document.body.classList.add("mobile-sidebar-open");
+    return;
+  }
   document.body.classList.remove("no-sidebar");
   els.sidebar.classList.remove("hidden");
   els.showSidebar.classList.add("hidden");
+});
+
+// Tap the dim backdrop on mobile to close the sidebar
+document.addEventListener("click", (e) => {
+  if (
+    !isMobile() ||
+    !document.body.classList.contains("mobile-sidebar-open")
+  )
+    return;
+  // Click was outside the sidebar and not on the toggle? Close.
+  if (
+    !els.sidebar.contains(e.target) &&
+    e.target !== els.showSidebar &&
+    !els.showSidebar.contains(e.target)
+  ) {
+    document.body.classList.remove("mobile-sidebar-open");
+  }
 });
 
 els.openSettings.addEventListener("click", openSettings);
