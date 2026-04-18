@@ -85,6 +85,9 @@ const els = {
   topbarPersona: $("topbar-persona"),
   personasList: $("personas-list"),
   personaNew: $("persona-new"),
+  tokenMeter: $("token-meter"),
+  tokenCount: $("token-count"),
+  tokenBudget: $("token-budget"),
   palaceLabel: $("palace-label"),
   emptyState: $("empty-state"),
   messages: $("messages"),
@@ -131,6 +134,7 @@ const els = {
   tExtract: $("t-extract"),
   tIdentity: $("t-identity"),
   tTools: $("t-tools"),
+  tAutoKg: $("t-auto-kg"),
   refreshWakeup: $("refresh-wakeup"),
   wakeupTokens: $("wakeup-tokens"),
   wakeupText: $("wakeup-text"),
@@ -158,6 +162,7 @@ function savePrefs() {
   state.prefs.extract = els.tExtract.checked;
   state.prefs.identity = els.tIdentity.checked;
   if (els.tTools) state.prefs.tools = els.tTools.checked;
+  if (els.tAutoKg) state.prefs.autoKg = els.tAutoKg.checked;
   saveJSON(PREFS_KEY, state.prefs);
   syncRecallButton();
 }
@@ -282,6 +287,7 @@ function setActive(id) {
       els.wing.value = s.wing;
     }
     if (s.room) els.room.value = s.room;
+    if (s.persona && els.topbarPersona) els.topbarPersona.value = s.persona;
     state.prefs.wing = s.wing;
     state.prefs.room = s.room;
     state.prefs.model = s.model;
@@ -290,6 +296,7 @@ function setActive(id) {
   }
   renderSessions();
   renderMessages();
+  refreshTokenMeter();
 }
 
 function bucketSessionsByDate() {
@@ -499,6 +506,53 @@ function renderHits(hits) {
 }
 
 /* ─── Wings & models ───────────────────────────────────────────────────── */
+
+/* ─── Token meter / model info ────────────────────────────────────────── */
+
+const modelInfoCache = new Map(); // model name -> {context_length, ...}
+
+async function getModelInfo(model) {
+  if (!model) return null;
+  if (modelInfoCache.has(model)) return modelInfoCache.get(model);
+  try {
+    const r = await fetch(`/api/model-info?model=${encodeURIComponent(model)}`);
+    if (!r.ok) return null;
+    const info = await r.json();
+    modelInfoCache.set(model, info);
+    return info;
+  } catch {
+    return null;
+  }
+}
+
+function estimateTokens(s) {
+  return Math.max(1, Math.floor((s || "").length / 4));
+}
+
+async function refreshTokenMeter() {
+  if (!els.tokenMeter || !els.tokenCount || !els.tokenBudget) return;
+  const session = getActiveSession();
+  if (!session) {
+    els.tokenCount.textContent = "0";
+    els.tokenBudget.textContent = "?";
+    els.tokenMeter.className = "token-meter";
+    return;
+  }
+  const info = await getModelInfo(session.model || els.model.value);
+  const ctx = info?.context_length || 4096;
+  // Estimate: identity + wing prompt + memory hit budget + messages
+  let total = 200; // baseline overhead for system messages
+  for (const m of session.messages) {
+    total += estimateTokens(m.content) + 4;
+    if (m.images) total += 600 * m.images.length;
+  }
+  els.tokenCount.textContent = total.toLocaleString();
+  els.tokenBudget.textContent = ctx.toLocaleString();
+  const ratio = total / ctx;
+  els.tokenMeter.className = "token-meter";
+  if (ratio > 0.85) els.tokenMeter.classList.add("crit");
+  else if (ratio > 0.65) els.tokenMeter.classList.add("warn");
+}
 
 async function loadModels() {
   try {
@@ -926,6 +980,7 @@ async function sendMessage(text) {
     auto_extract: session.anonymous ? false : state.prefs.extract,
     use_identity: state.prefs.identity,
     enable_tools: session.anonymous ? false : !!state.prefs.tools,
+    auto_kg: session.anonymous ? false : !!state.prefs.autoKg,
     persona: session.anonymous ? "default" : (session.persona || "default"),
     system_prompt: session.anonymous
       ? null
@@ -1001,13 +1056,20 @@ async function sendMessage(text) {
             asstMsg.content = assistantText;
             renderMessages();
           } else if (evt.type === "done") {
+            const bits = [];
             if (evt.extracted_facts && evt.extracted_facts.length) {
               asstMsg.extracted = evt.extracted_facts;
-              setStatus(`saved + extracted ${evt.extracted_facts.length} facts`, "ok");
-            } else if (evt.saved_drawer_id) {
-              setStatus("saved to memory", "ok");
-            } else if (evt.save_error) {
+              bits.push(`extracted ${evt.extracted_facts.length} fact(s)`);
+            }
+            if (evt.kg_added && evt.kg_added.length) {
+              asstMsg.kgAdded = evt.kg_added;
+              bits.push(`+${evt.kg_added.length} kg triple(s)`);
+            }
+            if (evt.saved_drawer_id) bits.unshift("saved");
+            if (evt.save_error) {
               setStatus(`save error: ${evt.save_error}`, "warn");
+            } else if (bits.length) {
+              setStatus(bits.join(" · "), "ok");
             } else {
               setStatus("done", "");
             }
@@ -1058,6 +1120,7 @@ async function sendMessage(text) {
     renderPendingAttachments();
     saveJSON(SESSIONS_KEY, state.sessions);
     loadWings(els.wing.value);
+    refreshTokenMeter();
   }
 }
 
@@ -2373,7 +2436,12 @@ const prefInputs = [
   els.tIdentity,
 ];
 if (els.tTools) prefInputs.push(els.tTools);
+if (els.tAutoKg) prefInputs.push(els.tAutoKg);
 prefInputs.forEach((el) => el.addEventListener("change", savePrefs));
+
+if (els.model) {
+  els.model.addEventListener("change", refreshTokenMeter);
+}
 
 els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
 if (els.wingPromptPicker) {
@@ -2402,6 +2470,7 @@ if (els.wingPromptPicker) {
   els.tExtract.checked = state.prefs.extract !== false;
   els.tIdentity.checked = state.prefs.identity !== false;
   if (els.tTools) els.tTools.checked = !!state.prefs.tools;
+  if (els.tAutoKg) els.tAutoKg.checked = !!state.prefs.autoKg;
   state.prefs.recall = els.tRecall.checked;
   state.prefs.save = els.tSave.checked;
   state.prefs.extract = els.tExtract.checked;
@@ -2418,6 +2487,7 @@ if (els.wingPromptPicker) {
   syncWingFilter();
   renderMessages();
   renderHits([]);
+  refreshTokenMeter();
 
   try {
     const h = await fetch("/api/health").then((r) => r.json());

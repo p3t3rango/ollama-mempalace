@@ -81,6 +81,11 @@
           <span class="topbar-label">Persona:</span>
           <select id="topbar-persona" class="topbar-pick" title="Switch persona — overrides Layer 0 identity for this chat"></select>
         </div>
+        <span id="token-meter" class="token-meter" title="Estimated prompt tokens / current model's context window. Auto-compact summarizes older turns before this fills.">
+          <span id="token-count">0</span>
+          <span class="tm-sep">/</span>
+          <span id="token-budget">?</span>
+        </span>
         <button id="toggle-memory-pane" class="icon-btn" title="Memory hits">🧠</button>
       </header>
 
@@ -288,6 +293,10 @@
               <label class="check" title="Let the model decide when to search memory, query the knowledge graph, record facts, and write diary entries. Best with larger models (gemma4, gpt-oss, deepseek-r1, codellama). Smaller models may ignore tools or misuse them. Slower than regular chat because tool calls are non-streaming.">
                 <input id="t-tools" type="checkbox" />
                 Enable tools (agent auto-calls memory_search, kg_add, diary_write, …)
+              </label>
+              <label class="check" title="After each turn, run a small LLM pass to extract subject/predicate/object triples from the exchange and write them to the knowledge graph. Adds ~2-5s per turn. Off by default. Independent of tools.">
+                <input id="t-auto-kg" type="checkbox" />
+                Auto-populate knowledge graph (extra LLM pass per turn)
               </label>
             </div>
           </section>

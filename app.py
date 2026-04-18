@@ -101,6 +101,17 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     memory_limit: int = Field(default=5, ge=1, le=20)
     persona: Optional[str] = None
+    # Context window handling. When True, the server auto-summarizes older
+    # message pairs before sending if the prompt would exceed
+    # context_budget_pct of the model's reported context window.
+    auto_compact: bool = True
+    context_budget_pct: float = Field(default=0.75, ge=0.3, le=0.95)
+    keep_recent_turns: int = Field(default=6, ge=2, le=20)
+    # When True, after each save runs a small LLM pass to extract S/P/O
+    # triples from the exchange and writes them to the knowledge graph.
+    # Costs an extra Ollama call per turn; off by default.
+    auto_kg: bool = False
+    auto_kg_model: Optional[str] = None  # falls back to req.model if unset
 
 
 class WingRenameBody(BaseModel):
@@ -190,6 +201,41 @@ async def list_models():
         return {"models": names}
     except Exception as e:
         raise HTTPException(502, f"Ollama unreachable at {OLLAMA_HOST}: {e}")
+
+
+_MODEL_INFO_CACHE: dict[str, dict] = {}
+
+
+@app.get("/api/model-info")
+async def model_info(model: str):
+    """Return basic model info from Ollama's /api/show. Cached per model."""
+    if model in _MODEL_INFO_CACHE:
+        return _MODEL_INFO_CACHE[model]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"{OLLAMA_HOST}/api/show", json={"model": model}
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        raise HTTPException(502, f"Ollama show failed: {e}")
+    info = data.get("model_info", {}) or {}
+    # Find context length — varies by architecture (e.g. qwen2.context_length)
+    context_length = 4096  # safe default
+    for k, v in info.items():
+        if isinstance(v, int) and k.endswith(".context_length"):
+            context_length = v
+            break
+    out = {
+        "model": model,
+        "context_length": context_length,
+        "parameters": data.get("details", {}).get("parameter_size"),
+        "quantization": data.get("details", {}).get("quantization_level"),
+        "capabilities": data.get("capabilities", []),
+    }
+    _MODEL_INFO_CACHE[model] = out
+    return out
 
 
 @app.get("/api/wings")
@@ -1115,6 +1161,102 @@ def _exec_tool(
 MAX_TOOL_ITERATIONS = 6
 
 
+def _estimate_tokens(text: str) -> int:
+    """Rough char-based token estimate. ~4 chars per token for English."""
+    return max(1, len(text) // 4)
+
+
+def _estimate_messages_tokens(messages: list[dict]) -> int:
+    """Sum estimated tokens across a message list, accounting for content + images."""
+    total = 0
+    for m in messages:
+        c = m.get("content") or ""
+        total += _estimate_tokens(c) + 4  # 4-token overhead per message
+        if m.get("images"):
+            # Vision encoding cost varies wildly; rough overhead per image
+            total += 600 * len(m["images"])
+    return total
+
+
+async def _summarize_messages(model: str, messages: list[dict]) -> str:
+    """Ask the same model to summarize older messages. Returns plain text summary."""
+    if not messages:
+        return ""
+    convo = "\n\n".join(
+        f"{m.get('role', '?').upper()}: {m.get('content', '')}" for m in messages
+    )
+    prompt = (
+        "Summarize the following conversation in under 300 words. "
+        "Preserve all key facts, decisions, named people/projects, and any "
+        "unresolved questions. Use bullet points. Don't add preamble.\n\n"
+        f"{convo}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(
+                f"{OLLAMA_HOST}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                },
+            )
+            r.raise_for_status()
+            return (r.json().get("message", {}) or {}).get("content", "").strip()
+    except Exception:
+        return ""
+
+
+async def _maybe_compact(
+    req: ChatRequest, system_messages: list[dict], chat_messages: list[dict]
+) -> tuple[list[dict], Optional[dict]]:
+    """If the prompt would exceed budget, summarize older chat messages.
+
+    Returns (possibly-compacted chat_messages, optional summary-event dict).
+    System messages are NEVER compacted — only user/assistant turns.
+    """
+    if not req.auto_compact:
+        return chat_messages, None
+    try:
+        info = await model_info(req.model)
+        ctx = int(info.get("context_length") or 4096)
+    except Exception:
+        ctx = 4096
+    budget = int(ctx * req.context_budget_pct)
+    overhead = _estimate_messages_tokens(system_messages)
+    body_tokens = _estimate_messages_tokens(chat_messages)
+    if overhead + body_tokens <= budget:
+        return chat_messages, None
+
+    keep_recent = req.keep_recent_turns * 2  # user+assistant pairs
+    if len(chat_messages) <= keep_recent + 1:
+        return chat_messages, None  # nothing safe to compact
+
+    older = chat_messages[:-keep_recent]
+    recent = chat_messages[-keep_recent:]
+    summary = await _summarize_messages(req.model, older)
+    if not summary:
+        return chat_messages, None  # summarization failed; send as-is
+
+    summary_msg = {
+        "role": "system",
+        "content": (
+            "Summary of earlier conversation (older turns were compacted to save "
+            "context window):\n\n" + summary
+        ),
+    }
+    new_chat = [summary_msg, *recent]
+    saved = body_tokens - _estimate_messages_tokens(new_chat)
+    event = {
+        "type": "compacted",
+        "summarized_turns": len(older),
+        "kept_turns": len(recent),
+        "tokens_saved_estimate": saved,
+        "context_length": ctx,
+    }
+    return new_chat, event
+
+
 def _format_memory_block(hits: list[dict]) -> str:
     if not hits:
         return ""
@@ -1130,6 +1272,79 @@ def _format_memory_block(hits: list[dict]) -> str:
         parts.append(f"\n[memory {i} | {wing}/{room} | similarity={sim}]\n{text}")
     parts.append("\n--- end memories ---")
     return "\n".join(parts)
+
+
+async def _extract_kg_triples(model: str, transcript: str) -> list[dict]:
+    """Use a small fast LLM to pull subject/predicate/object triples from a transcript."""
+    prompt = (
+        "Extract every durable fact from the following conversation. Output a "
+        "JSON object with a single key 'triples' whose value is an array of "
+        "{subject, predicate, object} triples.\n\n"
+        "Include facts that are:\n"
+        "- About specific named people, projects, products, places, or things\n"
+        "- Stated as true (not asked, hypothesized, or denied)\n"
+        "- Not obvious or trivial\n\n"
+        "Be EXHAUSTIVE — if one sentence has 3 facts, emit 3 triples.\n\n"
+        "Use snake_case predicates (works_on, prefers, lives_in, owns, decided, "
+        "switched_to, started, finished, met, produces, founded, created).\n\n"
+        "Output shape: {\"triples\": [{\"subject\":\"...\",\"predicate\":\"...\",\"object\":\"...\"}]}\n"
+        "Empty list if nothing qualifies. No preamble, no markdown.\n\n"
+        f"Conversation:\n{transcript}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"{OLLAMA_HOST}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "format": "json",
+                },
+            )
+            r.raise_for_status()
+            text = (r.json().get("message", {}) or {}).get("content", "").strip()
+    except Exception:
+        return []
+    if not text:
+        return []
+    # Tolerate either {"triples": [...]} or [...] shape since some models wrap.
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # Try to find a JSON array inside the text
+        m = re.search(r"\[.*\]", text, re.DOTALL)
+        if not m:
+            return []
+        try:
+            data = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return []
+    if isinstance(data, dict):
+        # Common wrapping keys
+        for k in ("triples", "facts", "results", "items"):
+            if k in data and isinstance(data[k], list):
+                data = data[k]
+                break
+        else:
+            # Model returned a single triple as a flat dict — wrap it
+            if all(k in data for k in ("subject", "predicate", "object")):
+                data = [data]
+            else:
+                return []
+    if not isinstance(data, list):
+        return []
+    out = []
+    for t in data:
+        if not isinstance(t, dict):
+            continue
+        s = str(t.get("subject", "")).strip()
+        p = str(t.get("predicate", "")).strip()
+        o = str(t.get("object", "")).strip()
+        if not (s and p and o):
+            continue
+        out.append({"subject": s, "predicate": p, "object": o})
+    return out
 
 
 def _run_auto_extract(transcript: str, wing: str) -> list[dict]:
@@ -1208,11 +1423,16 @@ async def chat(req: ChatRequest):
     if memory_block:
         out_messages.append({"role": "system", "content": memory_block})
 
+    chat_msgs: list[dict] = []
     for m in req.messages:
         msg_dict: dict = {"role": m.role, "content": m.content}
         if m.images:
             msg_dict["images"] = m.images
-        out_messages.append(msg_dict)
+        chat_msgs.append(msg_dict)
+
+    # Compaction pass — only on chat messages, never on system prompts above.
+    chat_msgs, compaction_event = await _maybe_compact(req, out_messages, chat_msgs)
+    out_messages.extend(chat_msgs)
 
     async def generate():
         meta = {
@@ -1231,6 +1451,8 @@ async def chat(req: ChatRequest):
             ],
         }
         yield f"data: {json.dumps(meta)}\n\n"
+        if compaction_event:
+            yield f"data: {json.dumps(compaction_event)}\n\n"
 
         full_response = ""
         try:
@@ -1448,6 +1670,22 @@ async def chat(req: ChatRequest):
             if req.auto_extract:
                 extracted_facts = _run_auto_extract(transcript, wing)
 
+            kg_added: list[dict] = []
+            if req.auto_kg:
+                kg_model = req.auto_kg_model or req.model
+                triples = await _extract_kg_triples(kg_model, transcript)
+                for t in triples:
+                    try:
+                        result = tool_kg_add(
+                            t["subject"],
+                            t["predicate"],
+                            t["object"],
+                        )
+                        if result.get("success"):
+                            kg_added.append(t)
+                    except Exception:
+                        continue
+
         yield (
             "data: "
             + json.dumps(
@@ -1456,6 +1694,7 @@ async def chat(req: ChatRequest):
                     "saved_drawer_id": saved_id,
                     "save_error": save_error,
                     "extracted_facts": extracted_facts,
+                    "kg_added": kg_added if req.auto_kg else [],
                 }
             )
             + "\n\n"
