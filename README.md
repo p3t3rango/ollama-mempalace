@@ -104,6 +104,36 @@ Sessions and per-wing system prompts live in browser localStorage (per-browser, 
 - `OLLAMA_HOST` — defaults to `http://localhost:11434`
 - `MEMPALACE_PALACE_PATH` — defaults to `~/.mempalace/palace`
 
+## Use your palace from Claude Desktop / Cursor / Codex (MCP)
+
+`mcp_stdio.py` exposes your palace as a Model Context Protocol server.
+Any MCP-aware client can read your knowledge graph, search memory,
+write to the diary, etc., through the standard protocol.
+
+**Wire it to Claude Desktop** — edit
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "mempalace": {
+      "command": "/absolute/path/to/ollama-mempalace/.venv/bin/python",
+      "args": [
+        "/absolute/path/to/ollama-mempalace/mcp_stdio.py"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop. You'll see the `mempalace` server listed in its
+tools panel. Five tools are exposed (`memory_search`, `kg_query`,
+`kg_add`, `kg_invalidate`, `diary_write`) plus three read-only resources
+(`palace://stats`, `palace://taxonomy`, `palace://kg/stats`).
+
+Same setup pattern works for Cursor (`~/.cursor/mcp.json`) and any other
+MCP-aware client — just point at the same Python interpreter and script.
+
 ## API surface
 
 The backend (FastAPI) exposes 36 endpoints under `/api/*`. Highlights:
