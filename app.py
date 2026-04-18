@@ -73,6 +73,7 @@ PALACE_PATH = config.palace_path
 Path(PALACE_PATH).mkdir(parents=True, exist_ok=True)
 
 IDENTITY_PATH = Path(os.path.expanduser("~/.mempalace/identity.txt"))
+PERSONAS_PATH = Path(os.path.expanduser("~/.mempalace/personas.json"))
 
 app = FastAPI(title="ollama-mempalace")
 STATIC_DIR = Path(__file__).parent / "static"
@@ -99,6 +100,7 @@ class ChatRequest(BaseModel):
     system_prompt: Optional[str] = None
     session_id: Optional[str] = None
     memory_limit: int = Field(default=5, ge=1, le=20)
+    persona: Optional[str] = None
 
 
 class WingRenameBody(BaseModel):
@@ -107,6 +109,12 @@ class WingRenameBody(BaseModel):
 
 class IdentityBody(BaseModel):
     text: str
+
+
+class PersonaBody(BaseModel):
+    name: str
+    description: str = ""
+    identity: str
 
 
 class DrawerUpdate(BaseModel):
@@ -755,6 +763,126 @@ async def delete_identity():
     return {"ok": True}
 
 
+# ─── Personas ─────────────────────────────────────────────────────────────
+# personas.json holds *named* personas. The "default" persona is always
+# present and reads its identity text from identity.txt — that's the file
+# the welcome modal and Identity (Layer 0) editor in Settings already
+# write to. Named personas live in personas.json with their own identity
+# text and override the default identity when active for a session.
+
+
+def _read_other_personas() -> list[dict]:
+    if not PERSONAS_PATH.exists():
+        return []
+    try:
+        data = json.loads(PERSONAS_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [p for p in data if isinstance(p, dict) and p.get("name")]
+    except Exception:
+        pass
+    return []
+
+
+def _write_other_personas(personas: list[dict]) -> None:
+    PERSONAS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PERSONAS_PATH.write_text(
+        json.dumps(personas, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    try:
+        PERSONAS_PATH.chmod(0o600)
+    except OSError:
+        pass
+
+
+def _all_personas() -> list[dict]:
+    """List of every persona, with 'default' synthesized from identity.txt."""
+    default_text = ""
+    if IDENTITY_PATH.exists():
+        default_text = IDENTITY_PATH.read_text(encoding="utf-8")
+    default = {
+        "name": "default",
+        "description": "your main identity (Layer 0 — edited via Settings)",
+        "identity": default_text,
+        "is_default": True,
+    }
+    return [default, *_read_other_personas()]
+
+
+def _identity_for_persona(persona_name: Optional[str]) -> str:
+    name = persona_name or "default"
+    for p in _all_personas():
+        if p["name"] == name:
+            return (p.get("identity") or "").strip()
+    # Persona name was set but no matching persona — fall back to default
+    return (_all_personas()[0].get("identity") or "").strip()
+
+
+@app.get("/api/personas")
+async def list_personas():
+    return {"personas": _all_personas()}
+
+
+@app.post("/api/personas")
+async def create_persona(body: PersonaBody):
+    try:
+        name = sanitize_name(body.name, "persona name")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if name == "default":
+        raise HTTPException(400, "use Settings → Identity to edit the default persona")
+    personas = _read_other_personas()
+    if any(p["name"] == name for p in personas):
+        raise HTTPException(409, f"persona {name!r} already exists")
+    new = {
+        "name": name,
+        "description": body.description or "",
+        "identity": body.identity or "",
+    }
+    personas.append(new)
+    _write_other_personas(personas)
+    return new
+
+
+@app.put("/api/personas/{old_name}")
+async def update_persona(old_name: str, body: PersonaBody):
+    if old_name == "default":
+        raise HTTPException(400, "default persona is edited via Settings → Identity")
+    try:
+        new_name = sanitize_name(body.name, "persona name")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if new_name == "default":
+        raise HTTPException(400, "cannot rename a persona to 'default'")
+    personas = _read_other_personas()
+    for i, p in enumerate(personas):
+        if p["name"] == old_name:
+            # Disallow rename collision
+            if new_name != old_name and any(
+                q["name"] == new_name for q in personas
+            ):
+                raise HTTPException(409, f"persona {new_name!r} already exists")
+            personas[i] = {
+                "name": new_name,
+                "description": body.description or "",
+                "identity": body.identity or "",
+            }
+            _write_other_personas(personas)
+            return personas[i]
+    raise HTTPException(404, f"persona {old_name!r} not found")
+
+
+@app.delete("/api/personas/{name}")
+async def delete_persona(name: str):
+    if name == "default":
+        raise HTTPException(400, "cannot delete the default persona")
+    personas = _read_other_personas()
+    new = [p for p in personas if p["name"] != name]
+    if len(new) == len(personas):
+        raise HTTPException(404, f"persona {name!r} not found")
+    _write_other_personas(new)
+    return {"ok": True, "deleted": name}
+
+
 @app.get("/api/wakeup")
 async def get_wakeup(wing: Optional[str] = None):
     try:
@@ -1065,8 +1193,8 @@ async def chat(req: ChatRequest):
     out_messages: list[dict] = []
 
     # System prompts compose top-down: identity first, per-wing prompt next, memory last.
-    if req.use_identity and IDENTITY_PATH.exists():
-        identity = IDENTITY_PATH.read_text(encoding="utf-8").strip()
+    if req.use_identity:
+        identity = _identity_for_persona(req.persona)
         if identity:
             out_messages.append({"role": "system", "content": identity})
 

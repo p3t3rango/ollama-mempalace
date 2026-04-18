@@ -54,6 +54,7 @@ const state = {
   knownWings: loadJSON(KNOWN_WINGS_KEY, ["personal"]),
   wings: [],
   models: [],
+  personas: [{ name: "default", is_default: true, identity: "", description: "" }],
 };
 
 function rememberWing(name) {
@@ -81,6 +82,9 @@ const els = {
   toggleWingFilter: $("toggle-wing-filter"),
   topbarWing: $("topbar-wing"),
   topbarWingNew: $("topbar-wing-new"),
+  topbarPersona: $("topbar-persona"),
+  personasList: $("personas-list"),
+  personaNew: $("persona-new"),
   palaceLabel: $("palace-label"),
   emptyState: $("empty-state"),
   messages: $("messages"),
@@ -241,6 +245,7 @@ function createSession(opts = {}) {
     wing: state.prefs.wing || "personal",
     room: state.prefs.room || "general",
     model: state.prefs.model || (state.models[0] ?? ""),
+    persona: state.prefs.persona || "default",
     createdAt: now(),
     updatedAt: now(),
     messages: [],
@@ -651,7 +656,147 @@ Tone: warm but not sycophantic. Skip throat-clearing and trailing summaries.
 People: *your name* (the user).
 `;
 
-async function loadIdentity() {
+/* ─── Personas ─────────────────────────────────────────────────────────── */
+
+async function loadPersonas() {
+  try {
+    const r = await fetch("/api/personas");
+    const d = await r.json();
+    state.personas = d.personas || [];
+  } catch (e) {
+    state.personas = [
+      { name: "default", is_default: true, identity: "", description: "" },
+    ];
+  }
+  populatePersonaPicker();
+  renderPersonasList();
+}
+
+function populatePersonaPicker() {
+  const sel = els.topbarPersona;
+  if (!sel) return;
+  const desired =
+    (getActiveSession() && getActiveSession().persona) ||
+    state.prefs.persona ||
+    "default";
+  sel.innerHTML = state.personas
+    .map(
+      (p) =>
+        `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.is_default ? "" : ""}</option>`,
+    )
+    .join("");
+  if (state.personas.some((p) => p.name === desired)) {
+    sel.value = desired;
+  } else {
+    sel.value = "default";
+  }
+}
+
+function setCurrentPersona(name) {
+  state.prefs.persona = name;
+  saveJSON(PREFS_KEY, state.prefs);
+  const s = getActiveSession();
+  if (s) {
+    s.persona = name;
+    saveJSON(SESSIONS_KEY, state.sessions);
+  }
+  if (els.topbarPersona) els.topbarPersona.value = name;
+}
+
+function renderPersonasList() {
+  const host = els.personasList;
+  if (!host) return;
+  host.innerHTML = "";
+  for (const p of state.personas) {
+    const row = document.createElement("div");
+    row.className = "persona-row" + (p.is_default ? " is-default" : "");
+    row.innerHTML = `
+      <div class="name-row">
+        <span class="name">${escapeHtml(p.name)}</span>
+        <span class="actions">
+          ${p.is_default ? "" : `<button type="button" class="ghost edit-persona" data-name="${escapeHtml(p.name)}">edit</button>`}
+          ${p.is_default ? "" : `<button type="button" class="danger del-persona" data-name="${escapeHtml(p.name)}">delete</button>`}
+        </span>
+      </div>
+      <div class="description">${escapeHtml(p.description || (p.is_default ? "" : "(no description)"))}</div>
+    `;
+    host.appendChild(row);
+  }
+}
+
+function openPersonaEditor(opts) {
+  // opts.persona: existing persona to edit, or null for new
+  const host = els.personasList;
+  // Avoid stacking multiple editors
+  host.querySelectorAll(".persona-edit").forEach((n) => n.remove());
+  const isNew = !opts.persona;
+  const p = opts.persona || {
+    name: "",
+    description: "",
+    identity:
+      state.personas.find((x) => x.is_default)?.identity || "",
+  };
+  const editor = document.createElement("div");
+  editor.className = "persona-edit";
+  editor.innerHTML = `
+    <div class="persona-edit-row">
+      <span class="muted">name</span>
+      <input class="pe-name" placeholder="e.g. code-reviewer" value="${escapeHtml(p.name)}" ${isNew ? "" : "readonly title='click rename to change'"}/>
+    </div>
+    <div class="persona-edit-row">
+      <span class="muted">description</span>
+      <input class="pe-desc" placeholder="one-line summary" value="${escapeHtml(p.description || "")}" />
+    </div>
+    <span class="muted">identity (replaces Layer 0 when this persona is active)</span>
+    <textarea class="pe-identity">${escapeHtml(p.identity || "")}</textarea>
+    <div class="persona-edit-row">
+      <button type="button" class="primary pe-save">${isNew ? "Create" : "Save"}</button>
+      <button type="button" class="ghost pe-cancel">Cancel</button>
+      <span class="muted pe-status"></span>
+    </div>
+  `;
+  if (isNew) {
+    host.appendChild(editor);
+  } else {
+    // Insert after the matching row
+    const row = [...host.querySelectorAll(".persona-row")].find(
+      (r) => r.querySelector(".name").textContent === p.name,
+    );
+    if (row) row.after(editor);
+    else host.appendChild(editor);
+  }
+
+  editor.querySelector(".pe-cancel").addEventListener("click", () => editor.remove());
+  editor.querySelector(".pe-save").addEventListener("click", async () => {
+    const name = editor.querySelector(".pe-name").value.trim();
+    const description = editor.querySelector(".pe-desc").value.trim();
+    const identity = editor.querySelector(".pe-identity").value;
+    const status = editor.querySelector(".pe-status");
+    if (!name) {
+      status.textContent = "name required";
+      return;
+    }
+    status.textContent = "saving…";
+    try {
+      const url = isNew
+        ? "/api/personas"
+        : `/api/personas/${encodeURIComponent(p.name)}`;
+      const method = isNew ? "POST" : "PUT";
+      const r = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, description, identity }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+      await loadPersonas();
+      // If we just edited the active persona, no further action needed
+    } catch (e) {
+      status.textContent = `error: ${e.message}`;
+    }
+  });
+  editor.querySelector("textarea").focus();
+}
   try {
     const r = await fetch("/api/identity");
     const data = await r.json();
@@ -777,6 +922,7 @@ async function sendMessage(text) {
     auto_extract: session.anonymous ? false : state.prefs.extract,
     use_identity: state.prefs.identity,
     enable_tools: session.anonymous ? false : !!state.prefs.tools,
+    persona: session.anonymous ? "default" : (session.persona || "default"),
     system_prompt: session.anonymous
       ? null
       : state.wingPrompts[session.wing] || null,
@@ -1073,6 +1219,7 @@ els.settingsOverlay.addEventListener("click", (e) => {
 
 async function openSettings() {
   els.settingsOverlay.hidden = false;
+  await loadPersonas();
   await loadIdentity();
   loadWingPromptForCurrent();
   loadWakeup();
@@ -2161,6 +2308,41 @@ els.refreshWakeup.addEventListener("click", loadWakeup);
 
 els.wing.addEventListener("change", () => setCurrentWing(els.wing.value));
 els.topbarWing.addEventListener("change", () => setCurrentWing(els.topbarWing.value));
+if (els.topbarPersona) {
+  els.topbarPersona.addEventListener("change", () =>
+    setCurrentPersona(els.topbarPersona.value),
+  );
+}
+if (els.personaNew) {
+  els.personaNew.addEventListener("click", () => openPersonaEditor({}));
+}
+if (els.personasList) {
+  els.personasList.addEventListener("click", async (e) => {
+    const t = e.target;
+    if (t.classList.contains("edit-persona")) {
+      const name = t.dataset.name;
+      const persona = state.personas.find((p) => p.name === name);
+      if (persona) openPersonaEditor({ persona });
+    } else if (t.classList.contains("del-persona")) {
+      const name = t.dataset.name;
+      if (!confirm(`Delete persona "${name}"?`)) return;
+      try {
+        const r = await fetch(`/api/personas/${encodeURIComponent(name)}`, {
+          method: "DELETE",
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || "failed");
+        // If we deleted the active persona, fall back to default
+        if ((state.prefs.persona || "default") === name) {
+          setCurrentPersona("default");
+        }
+        await loadPersonas();
+      } catch (err) {
+        alert(`delete failed: ${err.message}`);
+      }
+    }
+  });
+}
 els.room.addEventListener("change", () => setCurrentRoom(els.room.value || "general"));
 
 async function newWingFlow() {
@@ -2226,6 +2408,7 @@ if (els.wingPromptPicker) {
 
   await loadModels();
   await loadWings(state.prefs.wing);
+  await loadPersonas();
 
   ensureSession();
   syncWingFilter();

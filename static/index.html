@@ -77,6 +77,9 @@
           <span class="topbar-label">Wing:</span>
           <select id="topbar-wing" class="topbar-pick" title="Switch wing"></select>
           <button id="topbar-wing-new" class="icon-btn small" title="New wing">＋</button>
+          <span class="topbar-sep">·</span>
+          <span class="topbar-label">Persona:</span>
+          <select id="topbar-persona" class="topbar-pick" title="Switch persona — overrides Layer 0 identity for this chat"></select>
         </div>
         <button id="toggle-memory-pane" class="icon-btn" title="Memory hits">🧠</button>
       </header>
@@ -161,6 +164,21 @@
           <button id="close-settings" class="icon-btn">✕</button>
         </header>
         <div class="settings-body">
+          <section>
+            <h3>Personas</h3>
+            <p class="muted">
+              A persona is an AI identity you can switch into per chat — like
+              "code reviewer", "journal therapist", or "drift writer". Each
+              persona's identity text replaces Layer 0 (below) when active.
+              Switch via the topbar; the <code>default</code> persona uses
+              the Layer 0 identity edited below.
+            </p>
+            <div id="personas-list"></div>
+            <div class="row" style="margin-top: 10px">
+              <button id="persona-new" class="ghost" type="button">+ New persona</button>
+            </div>
+          </section>
+
           <section>
             <h3>Identity (Layer 0)</h3>
             <p class="muted">
