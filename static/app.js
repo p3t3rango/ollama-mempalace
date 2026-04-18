@@ -1033,11 +1033,8 @@ async function sendMessage(text) {
             continue;
           }
           if (evt.type === "memory_hits") {
+            // Silent — the memory-hits side panel reflects this; no toast needed.
             renderHits(evt.hits);
-            setStatus(
-              `pulled ${evt.hits.length} memories from ${evt.wing}/${evt.room}`,
-              "",
-            );
           } else if (evt.type === "thinking") {
             asstMsg.thinking = (asstMsg.thinking || "") + evt.content;
             renderMessages();
