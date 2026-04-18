@@ -517,6 +517,16 @@
               (the model can call <code>kg_add</code> later — for now it's manual).
             </p>
             <div id="kg-stats" class="muted"></div>
+            <div class="kg-mode-toggle">
+              <button id="kg-mode-list" class="primary" type="button">List</button>
+              <button id="kg-mode-graph" class="ghost" type="button">Graph</button>
+            </div>
+            <div id="kg-graph-container" hidden>
+              <div id="kg-graph"></div>
+              <div id="kg-graph-legend" class="muted">
+                Drag nodes to rearrange. Scroll to zoom. Click a node to highlight its facts in the list below.
+              </div>
+            </div>
             <h4>Query an entity</h4>
             <div class="kg-toolbar">
               <div class="field field-grow">
@@ -618,6 +628,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/marked@13.0.2/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
     <script src="/static/app.js"></script>
   </body>
 </html>

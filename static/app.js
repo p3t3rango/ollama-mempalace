@@ -496,7 +496,14 @@ function renderMessages() {
             })
             .join("")}</div>`
         : "";
-    div.innerHTML = `<span class="role">${m.role}</span>${thinkingTag}${toolsTag}${attachTag}<div class="markdown-body">${renderMarkdown(shown)}</div>`;
+    let statsTag = "";
+    if (m.role === "assistant" && m.stats && m.content) {
+      const tps = m.stats.tps.toFixed(1);
+      const t = m.stats.tokens;
+      const e = m.stats.elapsed.toFixed(1);
+      statsTag = `<div class="msg-stats">${t} tok · ${e}s · ${tps} tok/s</div>`;
+    }
+    div.innerHTML = `<span class="role">${m.role}</span>${thinkingTag}${toolsTag}${attachTag}<div class="markdown-body">${renderMarkdown(shown)}</div>${statsTag}`;
     attachCodeCopyButtons(div);
     // Render thinking body as markdown too (model often uses markdown in CoT)
     const thinkingBody = div.querySelector(".thinking-body");
@@ -950,6 +957,8 @@ async function loadWakeup() {
 /* ─── Chat ─────────────────────────────────────────────────────────────── */
 
 let activeAbort = null;
+let activeStreamStart = 0;
+let activeStreamTokens = 0;
 
 function setSendingState(sending) {
   if (sending) {
@@ -1003,6 +1012,8 @@ async function sendMessage(text) {
   setSendingState(true);
   setStatus("…thinking", "");
   activeAbort = new AbortController();
+  activeStreamStart = 0;
+  activeStreamTokens = 0;
 
   // Strip displayContent / attachments / dataUrl from outgoing messages —
   // backend only knows role/content/images.
@@ -1092,6 +1103,10 @@ async function sendMessage(text) {
           } else if (evt.type === "token") {
             // (token rendering branch — still uses direct renderMessages
             // since each token mutates content, not thinking)
+            if (!activeStreamStart) activeStreamStart = performance.now();
+            // Rough token count — counting events is more accurate than
+            // re-tokenizing the text. Each event is roughly one token.
+            activeStreamTokens += 1;
             assistantText += evt.content;
             asstMsg.content = assistantText;
             renderMessages();
@@ -1112,6 +1127,18 @@ async function sendMessage(text) {
               setStatus(bits.join(" · "), "ok");
             } else {
               setStatus("done", "");
+            }
+            // Capture the per-turn token throughput so we can show it
+            // as a small footer on the assistant bubble.
+            if (activeStreamStart && activeStreamTokens) {
+              const elapsed = (performance.now() - activeStreamStart) / 1000;
+              if (elapsed > 0.05) {
+                asstMsg.stats = {
+                  tokens: activeStreamTokens,
+                  elapsed,
+                  tps: activeStreamTokens / elapsed,
+                };
+              }
             }
             // Speak the response if TTS is enabled
             if (ttsPrefs().enabled && asstMsg.content && !session.anonymous) {
@@ -2289,6 +2316,9 @@ function switchTab(name) {
 
 /* ─── Knowledge Graph ──────────────────────────────────────────────────── */
 
+let kgNetwork = null; // active vis-network instance
+let kgViewMode = "list"; // "list" or "graph"
+
 async function loadKgStats() {
   const el = document.getElementById("kg-stats");
   if (!el) return;
@@ -2353,7 +2383,114 @@ function renderKgFacts(facts, container) {
   }
 }
 
+async function loadKgGraph() {
+  const host = document.getElementById("kg-graph");
+  if (!host || !window.vis || !window.vis.Network) {
+    if (host) host.innerHTML = '<div class="muted" style="padding:20px">graph library not loaded</div>';
+    return;
+  }
+  try {
+    const r = await fetch("/api/kg/timeline");
+    const d = await r.json();
+    const facts = d.timeline || [];
+    if (!facts.length) {
+      host.innerHTML = '<div class="muted" style="padding:20px">no facts yet — add some via chat (with auto-KG on or tools enabled) or the form below</div>';
+      return;
+    }
+
+    const nodeMap = new Map();
+    const edges = [];
+    for (const f of facts) {
+      const s = f.subject;
+      const o = f.object;
+      if (!nodeMap.has(s)) nodeMap.set(s, { id: s, label: s, facts: [] });
+      if (!nodeMap.has(o)) nodeMap.set(o, { id: o, label: o, facts: [] });
+      nodeMap.get(s).facts.push(f);
+      edges.push({
+        from: s,
+        to: o,
+        label: f.predicate,
+        arrows: "to",
+        color: f.current === false
+          ? { color: "rgba(208,80,80,0.3)" }
+          : { color: "rgba(123,166,255,0.5)" },
+        dashes: f.current === false,
+      });
+    }
+    // Style nodes — bigger if more connected
+    for (const n of nodeMap.values()) {
+      n.value = n.facts.length;
+      n.title = `${n.label} — ${n.facts.length} fact(s)`;
+    }
+
+    const data = {
+      nodes: new vis.DataSet([...nodeMap.values()]),
+      edges: new vis.DataSet(edges),
+    };
+    const options = {
+      nodes: {
+        shape: "dot",
+        scaling: { min: 8, max: 28, label: { enabled: true, min: 11, max: 16 } },
+        color: {
+          background: "#2c2c2c",
+          border: "#7aa6ff",
+          highlight: { background: "#3a466b", border: "#ffffff" },
+        },
+        font: { color: "#ececec", face: "Inter, system-ui, sans-serif", size: 12 },
+        borderWidth: 1,
+      },
+      edges: {
+        font: { color: "#888", size: 10, face: "ui-monospace, monospace", align: "middle", strokeWidth: 0 },
+        smooth: { type: "continuous" },
+        arrows: { to: { scaleFactor: 0.5 } },
+        width: 1,
+      },
+      physics: {
+        barnesHut: { gravitationalConstant: -2400, springLength: 110, springConstant: 0.04 },
+        stabilization: { iterations: 80 },
+      },
+      interaction: { hover: true, dragNodes: true, zoomView: true },
+    };
+
+    if (kgNetwork) kgNetwork.destroy();
+    kgNetwork = new vis.Network(host, data, options);
+    kgNetwork.on("click", (params) => {
+      if (!params.nodes.length) return;
+      const id = params.nodes[0];
+      // Drop the entity into the query input + run query so the side panel updates
+      const inp = document.getElementById("kg-entity");
+      if (inp) {
+        inp.value = id;
+        document.getElementById("kg-search").click();
+      }
+    });
+  } catch (e) {
+    host.innerHTML = `<div class="muted" style="padding:20px">graph error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function setKgViewMode(mode) {
+  kgViewMode = mode;
+  const listBtn = document.getElementById("kg-mode-list");
+  const graphBtn = document.getElementById("kg-mode-graph");
+  const graphContainer = document.getElementById("kg-graph-container");
+  if (listBtn && graphBtn) {
+    listBtn.className = mode === "list" ? "primary" : "ghost";
+    graphBtn.className = mode === "graph" ? "primary" : "ghost";
+  }
+  if (graphContainer) graphContainer.hidden = mode !== "graph";
+  if (mode === "graph") loadKgGraph();
+}
+
 document.addEventListener("click", async (e) => {
+  if (e.target.id === "kg-mode-list") {
+    setKgViewMode("list");
+    return;
+  }
+  if (e.target.id === "kg-mode-graph") {
+    setKgViewMode("graph");
+    return;
+  }
   if (e.target.id === "kg-search") {
     const entity = document.getElementById("kg-entity").value.trim();
     const asof = document.getElementById("kg-asof").value.trim();
