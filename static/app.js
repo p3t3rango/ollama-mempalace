@@ -157,6 +157,8 @@ const els = {
   browserPrev: $("browser-prev"),
   browserNext: $("browser-next"),
   browserPage: $("browser-page"),
+  browserSince: $("browser-since"),
+  browserUntil: $("browser-until"),
 };
 
 function savePrefs() {
@@ -2510,10 +2512,20 @@ async function loadBrowser() {
   const wing = els.browserWing.value || undefined;
   const room = els.browserRoom.value.trim() || undefined;
   const q = els.browserQ.value.trim() || undefined;
+  // <input type="date"> gives YYYY-MM-DD; expand to inclusive range so
+  // 'until = 2026-04-18' includes everything that day.
+  const since = els.browserSince?.value
+    ? `${els.browserSince.value}T00:00:00`
+    : undefined;
+  const until = els.browserUntil?.value
+    ? `${els.browserUntil.value}T23:59:59.999`
+    : undefined;
   const params = new URLSearchParams();
   if (wing) params.set("wing", wing);
   if (room) params.set("room", room);
   if (q) params.set("q", q);
+  if (since) params.set("since", since);
+  if (until) params.set("until", until);
   params.set("limit", String(browserState.limit));
   params.set("offset", String(browserState.offset));
   els.browserList.innerHTML = '<div class="muted">loading…</div>';
@@ -3138,12 +3150,20 @@ els.browserNext.addEventListener("click", () => {
   browserState.offset += browserState.limit;
   loadBrowser();
 });
-[els.browserWing, els.browserRoom, els.browserQ].forEach((el) => {
-  el.addEventListener("change", () => {
-    browserState.offset = 0;
-    loadBrowser();
+[
+  els.browserWing,
+  els.browserRoom,
+  els.browserQ,
+  els.browserSince,
+  els.browserUntil,
+]
+  .filter(Boolean)
+  .forEach((el) => {
+    el.addEventListener("change", () => {
+      browserState.offset = 0;
+      loadBrowser();
+    });
   });
-});
 
 els.saveIdentity.addEventListener("click", saveIdentity);
 els.resetIdentity.addEventListener("click", resetIdentity);

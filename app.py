@@ -565,6 +565,8 @@ async def list_drawers(
     wing: Optional[str] = None,
     room: Optional[str] = None,
     q: Optional[str] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ):
@@ -596,10 +598,18 @@ async def list_drawers(
 
     rows = []
     needle = (q or "").lower().strip()
+    since_norm = (since or "").strip()
+    until_norm = (until or "").strip()
     for i, did in enumerate(ids):
         doc = docs[i] if i < len(docs) else ""
         meta = metas[i] if i < len(metas) else {}
         if needle and needle not in doc.lower():
+            continue
+        filed_at = (meta or {}).get("filed_at", "") or ""
+        # ISO timestamps sort correctly as strings
+        if since_norm and filed_at and filed_at < since_norm:
+            continue
+        if until_norm and filed_at and filed_at > until_norm:
             continue
         rows.append(
             {
