@@ -171,225 +171,251 @@
 
     <!-- Settings overlay -->
     <div id="settings-overlay" hidden>
-      <div class="settings-panel">
+      <div class="settings-panel settings-with-nav">
         <header>
           <h2>Settings</h2>
           <button id="close-settings" class="icon-btn">✕</button>
         </header>
-        <div class="settings-body">
-          <section>
-            <h3>Personas</h3>
-            <p class="muted">
-              A persona is an AI identity you can switch into per chat — like
-              "code reviewer", "journal therapist", or "drift writer". Each
-              persona's identity text replaces Layer 0 (below) when active.
-              Switch via the topbar; the <code>default</code> persona uses
-              the Layer 0 identity edited below.
-            </p>
-            <div id="personas-list"></div>
-            <div class="row" style="margin-top: 10px">
-              <button id="persona-new" class="ghost" type="button">+ New persona</button>
-            </div>
-          </section>
+        <div class="settings-layout">
+          <nav class="settings-nav" role="tablist">
+            <button class="settings-tab active" data-pane="identity">Identity</button>
+            <button class="settings-tab" data-pane="conversation">Conversation</button>
+            <button class="settings-tab" data-pane="voice">Voice</button>
+            <button class="settings-tab" data-pane="wing-data">Wing data</button>
+            <button class="settings-tab" data-pane="reference">Reference</button>
+          </nav>
+          <div class="settings-body">
+            <!-- ─── Identity ─────────────────────────────────────────────── -->
+            <div class="settings-pane" data-pane="identity">
+              <section>
+                <h3>Personas</h3>
+                <p class="muted">
+                  A persona is an AI identity you can switch into per chat — like
+                  "code-reviewer", "journal-companion", "brainstorm-partner". Each
+                  persona's identity text replaces Layer 0 below when active.
+                  Switch via the topbar; the <code>default</code> persona uses
+                  the Layer 0 identity edited below.
+                </p>
+                <div id="personas-list"></div>
+                <div class="row" style="margin-top: 10px">
+                  <button id="persona-new" class="ghost" type="button">+ New persona</button>
+                </div>
+              </section>
 
-          <section>
-            <h3>Identity (Layer 0)</h3>
-            <p class="muted">
-              A persistent system prompt loaded into every conversation, no matter the wing.
-              Stored in <code>~/.mempalace/identity.txt</code>. Describe <i>who the AI is</i> and
-              <i>who you are</i> — not what you're working on. Project / topic context belongs in
-              the per-wing system prompt below.
-            </p>
-            <textarea id="identity" rows="8"></textarea>
-            <div class="row">
-              <button id="save-identity" class="primary">Save identity</button>
-              <button id="reset-identity" class="ghost" title="Replace the textarea content with the default template (doesn't save until you click Save)">Reset to default</button>
-              <button id="redo-welcome" class="danger" title="Deletes identity.txt and clears the onboarded flag, then reloads so the welcome modal appears again">Redo welcome</button>
-              <span id="identity-status" class="muted"></span>
-            </div>
-          </section>
-
-          <section>
-            <h3>Current chat</h3>
-            <div class="grid">
-              <label>
-                Wing
-                <span class="caption">
-                  A top-level domain — a project, person, or big topic
-                  (e.g. <code>personal</code>, <code>dos-clone</code>, <code>music</code>).
-                  Memory recall is scoped to the active wing, so unrelated context can't leak in.
-                </span>
+              <section>
+                <h3>Identity (Layer 0)</h3>
+                <p class="muted">
+                  A persistent system prompt loaded into every conversation, no matter the wing.
+                  Stored in <code>~/.mempalace/identity.txt</code>. Describe <i>who the AI is</i> and
+                  <i>who you are</i> — not what you're working on. Project / topic context belongs in
+                  the per-wing system prompt under Conversation.
+                </p>
+                <textarea id="identity" rows="8"></textarea>
                 <div class="row">
-                  <select id="wing"></select>
-                  <button id="wing-new" class="ghost" title="New wing">+</button>
-                  <button id="wing-rename" class="ghost" title="Rename">rename</button>
-                  <button id="wing-delete" class="danger" title="Delete">delete</button>
+                  <button id="save-identity" class="primary">Save identity</button>
+                  <button id="reset-identity" class="ghost" title="Replace the textarea content with the default template (doesn't save until you click Save)">Reset to default</button>
+                  <button id="redo-welcome" class="danger" title="Deletes identity.txt and clears the onboarded flag, then reloads so the welcome modal appears again">Redo welcome</button>
+                  <span id="identity-status" class="muted"></span>
                 </div>
-              </label>
-              <label>
-                Room (advanced)
-                <span class="caption">
-                  Rooms are usually automatic — auto-extracted facts file themselves into
-                  <code>facts_&lt;type&gt;</code> rooms, and project mining derives rooms from
-                  folder structure. Manual chat exchanges save to the catch-all room you set
-                  here. Most people leave this as <code>general</code>.
-                </span>
-                <input id="room" type="text" value="general" />
-              </label>
-              <label>
-                Per-wing system prompt
-                <span class="caption">
-                  Extra instructions appended only when the selected wing is active. Use this
-                  for <i>what the wing is about</i> (project context, role, conventions) —
-                  keep identity in the Layer 0 above. Stored locally in your browser.
-                </span>
-                <div class="row" style="margin-bottom:6px">
-                  <span class="muted">Editing prompt for:</span>
-                  <select id="wing-prompt-picker"></select>
+              </section>
+            </div>
+
+            <!-- ─── Conversation ─────────────────────────────────────────── -->
+            <div class="settings-pane" data-pane="conversation" hidden>
+              <section>
+                <h3>Current chat</h3>
+                <div class="grid">
+                  <label>
+                    Wing
+                    <span class="caption">
+                      A top-level domain — a project, person, or big topic
+                      (e.g. <code>personal</code>, <code>dos-clone</code>, <code>music</code>).
+                      Memory recall is scoped to the active wing, so unrelated context can't leak in.
+                    </span>
+                    <div class="row">
+                      <select id="wing"></select>
+                      <button id="wing-new" class="ghost" title="New wing">+</button>
+                      <button id="wing-rename" class="ghost" title="Rename">rename</button>
+                      <button id="wing-delete" class="danger" title="Delete">delete</button>
+                    </div>
+                  </label>
+                  <label>
+                    Room (advanced)
+                    <span class="caption">
+                      Rooms are usually automatic — auto-extracted facts file themselves into
+                      <code>hall_&lt;type&gt;</code> rooms, and project mining derives rooms from
+                      folder structure. Manual chat exchanges save to the catch-all room you set
+                      here. Most people leave this as <code>general</code>.
+                    </span>
+                    <input id="room" type="text" value="general" />
+                  </label>
+                  <label>
+                    Per-wing system prompt
+                    <span class="caption">
+                      Extra instructions appended only when the selected wing is active. Use this
+                      for <i>what the wing is about</i> (project context, role, conventions) —
+                      keep identity in Layer 0 above. Stored locally in your browser.
+                    </span>
+                    <div class="row" style="margin-bottom:6px">
+                      <span class="muted">Editing prompt for:</span>
+                      <select id="wing-prompt-picker"></select>
+                    </div>
+                    <textarea id="wing-prompt" rows="4" placeholder="e.g. This wing is for the dos-clone game. Code in TypeScript. Prefer canvas APIs over WebGL."></textarea>
+                  </label>
                 </div>
-                <textarea id="wing-prompt" rows="4" placeholder="e.g. This wing is for the dos-clone game. Code in TypeScript. Prefer canvas APIs over WebGL."></textarea>
-              </label>
-              <label>
-                Permanent wing files
+              </section>
+
+              <section>
+                <h3>Behavior</h3>
+                <div class="toggles">
+                  <label class="check">
+                    <input id="t-recall" type="checkbox" checked />
+                    Recall memory before each turn
+                  </label>
+                  <label class="check">
+                    <input id="t-save" type="checkbox" checked />
+                    Save the exchange after each turn
+                  </label>
+                  <label class="check">
+                    <input id="t-extract" type="checkbox" checked />
+                    Auto-extract facts (preferences, decisions, events)
+                  </label>
+                  <label class="check">
+                    <input id="t-identity" type="checkbox" checked />
+                    Inject identity.txt as a system message
+                  </label>
+                  <label class="check" title="Let the model decide when to search memory, query the knowledge graph, record facts, and write diary entries. Best with larger models (gemma4, gpt-oss, deepseek-r1, codellama). Smaller models may ignore tools or misuse them. Slower than regular chat because tool calls are non-streaming.">
+                    <input id="t-tools" type="checkbox" />
+                    Enable tools (agent auto-calls memory_search, kg_add, diary_write, …)
+                  </label>
+                  <label class="check" title="After each turn, run a small LLM pass to extract subject/predicate/object triples from the exchange and write them to the knowledge graph. Adds ~2-5s per turn. Off by default. Independent of tools.">
+                    <input id="t-auto-kg" type="checkbox" />
+                    Auto-populate knowledge graph (extra LLM pass per turn)
+                  </label>
+                </div>
+              </section>
+            </div>
+
+            <!-- ─── Voice ───────────────────────────────────────────────── -->
+            <div class="settings-pane" data-pane="voice" hidden>
+              <section>
+                <h3>Voice output (macOS speech)</h3>
                 <span class="caption">
-                  Persistent reference files attached to this wing — chunked and filed as
+                  The assistant's responses can be spoken aloud using macOS's built-in
+                  speech synthesizer (the same engine as <code>say</code>). Zero install,
+                  fully local, instant. Pick any installed system voice.
+                </span>
+                <div class="grid">
+                  <label class="check">
+                    <input id="t-tts" type="checkbox" />
+                    Speak assistant responses aloud
+                  </label>
+                  <label>
+                    Voice
+                    <select id="tts-voice"></select>
+                  </label>
+                  <label>
+                    Rate (words / minute, blank = default)
+                    <input id="tts-rate" type="number" min="80" max="500" placeholder="200" />
+                  </label>
+                </div>
+              </section>
+
+              <section>
+                <h3>Voice input (Whisper)</h3>
+                <span class="caption">
+                  Click the mic in the composer to dictate. Whisper runs locally on
+                  Apple Silicon — nothing leaves your Mac. First use of each model
+                  size downloads it once.
+                </span>
+                <div class="grid">
+                  <label>
+                    Model size
+                    <span class="caption">
+                      Larger = better accuracy + slower. <code>base.en</code> is plenty
+                      for chat. Bump to <code>small.en</code> if names/punctuation are
+                      garbled. <code>large-v3</code> handles non-English.
+                    </span>
+                    <select id="whisper-model">
+                      <option value="tiny.en">tiny.en (~75 MB)</option>
+                      <option value="base.en" selected>base.en (~140 MB)</option>
+                      <option value="small.en">small.en (~460 MB)</option>
+                      <option value="medium.en">medium.en (~1.5 GB)</option>
+                      <option value="large-v3">large-v3 (~3 GB, multilingual)</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+            </div>
+
+            <!-- ─── Wing data ───────────────────────────────────────────── -->
+            <div class="settings-pane" data-pane="wing-data" hidden>
+              <section>
+                <h3>Permanent wing files</h3>
+                <span class="caption">
+                  Persistent reference files attached to the current wing — chunked and filed as
                   drawers so memory recall pulls from them in every chat in this wing.
                   Different from the <code>+</code> button in the composer, which attaches
                   a file to a <i>single message only</i>.
                 </span>
-                <div class="row">
+                <div class="row" style="margin-top: 8px">
                   <button id="upload-wing-file-btn" class="ghost" type="button">+ Upload file to this wing</button>
                   <span class="muted">or drop files directly on this settings panel</span>
                 </div>
                 <div id="attachments-list"></div>
-              </label>
-              <label>
-                Import past chats from a folder
+              </section>
+
+              <section>
+                <h3>Import past chats from a folder</h3>
                 <span class="caption">
                   Point this at a directory of conversation exports (Claude Code JSONL,
                   ChatGPT JSON, Slack exports, plain text). MemPalace will mine each
                   exchange into the current wing. <b>Takes minutes for large folders.</b>
                 </span>
-                <div class="row">
+                <div class="row" style="margin-top: 8px">
                   <input id="import-convos-path" type="text" placeholder="e.g. ~/Downloads/claude-export" style="flex:1" />
                   <button id="import-convos-btn" class="primary" type="button">Import</button>
                 </div>
                 <span id="import-convos-status" class="muted"></span>
-              </label>
+              </section>
             </div>
-          </section>
 
-          <section>
-            <h3>Behavior</h3>
-            <div class="toggles">
-              <label class="check">
-                <input id="t-recall" type="checkbox" checked />
-                Recall memory before each turn
-              </label>
-              <label class="check">
-                <input id="t-save" type="checkbox" checked />
-                Save the exchange after each turn
-              </label>
-              <label class="check">
-                <input id="t-extract" type="checkbox" checked />
-                Auto-extract facts (preferences, decisions, events)
-              </label>
-              <label class="check">
-                <input id="t-identity" type="checkbox" checked />
-                Inject identity.txt as a system message
-              </label>
-              <label class="check" title="Let the model decide when to search memory, query the knowledge graph, record facts, and write diary entries. Best with larger models (gemma4, gpt-oss, deepseek-r1, codellama). Smaller models may ignore tools or misuse them. Slower than regular chat because tool calls are non-streaming.">
-                <input id="t-tools" type="checkbox" />
-                Enable tools (agent auto-calls memory_search, kg_add, diary_write, …)
-              </label>
-              <label class="check" title="After each turn, run a small LLM pass to extract subject/predicate/object triples from the exchange and write them to the knowledge graph. Adds ~2-5s per turn. Off by default. Independent of tools.">
-                <input id="t-auto-kg" type="checkbox" />
-                Auto-populate knowledge graph (extra LLM pass per turn)
-              </label>
-            </div>
-          </section>
+            <!-- ─── Reference ───────────────────────────────────────────── -->
+            <div class="settings-pane" data-pane="reference" hidden>
+              <section>
+                <h3>Wake-up preview</h3>
+                <p class="muted">L0 + L1 — the context the model sees before any of your messages.</p>
+                <div class="row">
+                  <button id="refresh-wakeup" class="ghost">Refresh</button>
+                  <span id="wakeup-tokens" class="muted"></span>
+                </div>
+                <pre id="wakeup-text" class="wakeup"></pre>
+              </section>
 
-          <section>
-            <h3>Voice output (macOS speech)</h3>
-            <span class="caption">
-              The assistant's responses can be spoken aloud using macOS's built-in
-              speech synthesizer (the same engine as <code>say</code>). Zero install,
-              fully local, instant. Pick any installed system voice.
-            </span>
-            <div class="grid">
-              <label class="check">
-                <input id="t-tts" type="checkbox" />
-                Speak assistant responses aloud
-              </label>
-              <label>
-                Voice
-                <select id="tts-voice"></select>
-              </label>
-              <label>
-                Rate (words / minute, blank = default)
-                <input id="tts-rate" type="number" min="80" max="500" placeholder="200" />
-              </label>
-            </div>
-          </section>
-
-          <section>
-            <h3>Voice input (Whisper)</h3>
-            <span class="caption">
-              Click the mic in the composer to dictate. Whisper runs locally on
-              Apple Silicon — nothing leaves your Mac. First use of each model
-              size downloads it once.
-            </span>
-            <div class="grid">
-              <label>
-                Model size
+              <section>
+                <h3 title="AAAK is MemPalace's shorthand for packing lots of facts into few tokens — think 'ENT: PRI(lead)' instead of 'Priya is the lead.' Any modern LLM reads it natively.">
+                  AAAK compression spec
+                  <span class="help-hint">?</span>
+                </h3>
                 <span class="caption">
-                  Larger = better accuracy + slower. <code>base.en</code> is plenty
-                  for chat. Bump to <code>small.en</code> if names/punctuation are
-                  garbled. <code>large-v3</code> handles non-English.
+                  MemPalace's compressed memory dialect. Models can read and write AAAK
+                  natively without decoding. Useful for high-density recall in tight token
+                  budgets. Hover the title for a plain-English summary.
                 </span>
-                <select id="whisper-model">
-                  <option value="tiny.en">tiny.en (~75 MB)</option>
-                  <option value="base.en" selected>base.en (~140 MB)</option>
-                  <option value="small.en">small.en (~460 MB)</option>
-                  <option value="medium.en">medium.en (~1.5 GB)</option>
-                  <option value="large-v3">large-v3 (~3 GB, multilingual)</option>
-                </select>
-              </label>
+                <pre id="aaak-spec-text" class="wakeup">loading…</pre>
+              </section>
+
+              <section>
+                <h3>Wings &amp; rooms — how to think about them</h3>
+                <ul class="muted">
+                  <li><b>Wing</b> = a top-level domain. A project, a person, or a big topic. Examples: <code>personal</code>, <code>dos-clone</code>, <code>health</code>, <code>work</code>.</li>
+                  <li><b>Room</b> = a facet inside a wing. For a project: <code>auth</code>, <code>gameplay</code>, <code>billing</code>. For a person: <code>conversations</code>, <code>preferences</code>.</li>
+                  <li><b>Auto-extracted facts</b> land in rooms named <code>hall_&lt;type&gt;</code> (e.g. <code>hall_preferences</code>) inside the active wing.</li>
+                  <li>Memory recall is scoped to the current wing so unrelated context can't bleed in.</li>
+                </ul>
+              </section>
             </div>
-          </section>
-
-          <section>
-            <h3>Wake-up preview</h3>
-            <p class="muted">L0 + L1 — the context the model sees before any of your messages.</p>
-            <div class="row">
-              <button id="refresh-wakeup" class="ghost">Refresh</button>
-              <span id="wakeup-tokens" class="muted"></span>
-            </div>
-            <pre id="wakeup-text" class="wakeup"></pre>
-          </section>
-
-          <section>
-            <h3 title="AAAK is MemPalace's shorthand for packing lots of facts into few tokens — think 'ENT: PRI(lead)' instead of 'Priya is the lead.' Any modern LLM reads it natively.">
-              AAAK compression spec
-              <span class="help-hint">?</span>
-            </h3>
-            <span class="caption">
-              MemPalace's compressed memory dialect. Models can read and write AAAK
-              natively without decoding. Useful for high-density recall in tight token
-              budgets. Hover the title for a plain-English summary.
-            </span>
-            <pre id="aaak-spec-text" class="wakeup">loading…</pre>
-          </section>
-
-          <section>
-            <h3>Wings &amp; rooms — how to think about them</h3>
-            <ul class="muted">
-              <li><b>Wing</b> = a top-level domain. A project, a person, or a big topic. Examples: <code>personal</code>, <code>dos-clone</code>, <code>health</code>, <code>work</code>.</li>
-              <li><b>Room</b> = a facet inside a wing. For a project: <code>auth</code>, <code>gameplay</code>, <code>billing</code>. For a person: <code>conversations</code>, <code>preferences</code>.</li>
-              <li><b>Auto-extracted facts</b> land in rooms named <code>facts_&lt;type&gt;</code> (e.g. <code>facts_preference</code>) inside the active wing.</li>
-              <li>Memory recall is scoped to the current wing so unrelated context can't bleed in.</li>
-            </ul>
-          </section>
+          </div>
         </div>
       </div>
     </div>

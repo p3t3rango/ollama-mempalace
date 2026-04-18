@@ -1907,6 +1907,58 @@ textarea::placeholder {
   overflow: hidden;
 }
 
+.settings-panel.settings-with-nav {
+  width: 920px;
+}
+
+.settings-layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  min-height: 0;
+}
+
+.settings-nav {
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.settings-tab {
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: var(--sans);
+  cursor: pointer;
+}
+
+.settings-tab:hover {
+  background: var(--bg-3);
+  color: var(--fg);
+}
+
+.settings-tab.active {
+  background: var(--bg-3);
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.settings-pane {
+  display: block;
+}
+
+.settings-pane[hidden] {
+  display: none;
+}
+
 .settings-panel header {
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);

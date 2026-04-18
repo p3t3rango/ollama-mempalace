@@ -1297,6 +1297,8 @@ els.settingsOverlay.addEventListener("click", (e) => {
 
 async function openSettings() {
   els.settingsOverlay.hidden = false;
+  // Default to Identity pane on each open (most users start there)
+  showSettingsPane(localStorage.getItem("ollama-mempalace.settingsPane") || "identity");
   await loadPersonas();
   await loadIdentity();
   loadWingPromptForCurrent();
@@ -1305,6 +1307,20 @@ async function openSettings() {
   loadAaak();
   loadVoices();
 }
+
+function showSettingsPane(name) {
+  document.querySelectorAll(".settings-tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.pane === name);
+  });
+  document.querySelectorAll(".settings-pane").forEach((p) => {
+    p.hidden = p.dataset.pane !== name;
+  });
+  localStorage.setItem("ollama-mempalace.settingsPane", name);
+}
+
+document.querySelectorAll(".settings-tab").forEach((t) => {
+  t.addEventListener("click", () => showSettingsPane(t.dataset.pane));
+});
 
 /* ─── Attachments ─────────────────────────────────────────────────────── */
 
