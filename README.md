@@ -49,10 +49,31 @@ Ollama gives you great local models. MemPalace gives you a serious memory backen
 
 ## Requirements
 
-- macOS or Linux (primary tested platform: macOS 14+ Apple Silicon)
-- Python 3.9+
-- [Ollama](https://ollama.com/download) installed and running
-- ~150 MB for Python deps + the embedding model that MemPalace pulls on first search
+**Operating system**
+- macOS 14+ on Apple Silicon (M1/M2/M3/M4) — fully supported, primary platform
+- macOS on Intel — works for chat + memory; voice input falls back to a slower CPU path, voice output uses macOS `say`
+- Linux — chat + memory work; voice input (mlx-whisper) and voice output (macOS `say`) are macOS-only and silently disable themselves
+- Windows is not supported (Ollama runs on Windows but the voice features and a few file-system paths are POSIX-only)
+
+**Software**
+- Python 3.9 or newer
+- [Ollama](https://ollama.com/download) installed and running (the desktop app, or `ollama serve`)
+- A modern Chromium / Safari / Firefox for the UI
+
+**Hardware**
+
+The app itself is light — under ~500 MB of RAM with all features loaded. The real cost is the Ollama model you pick. Pick a model that comfortably fits in your free RAM, leaving 4-6 GB for the OS and apps.
+
+| Tier | Free RAM | What runs well | Notes |
+| --- | --- | --- | --- |
+| Minimum | **8 GB** | 1-3B models (e.g. `llama3.2:3b`, `gemma3:4b`) | Chat works, but tool calling on small models is unreliable. Stay text-only. |
+| Comfortable | **16 GB** | 7-8B models (`llama3.1:8b`, `qwen3:8b`, `deepseek-r1:8b`) | Sweet spot for everyday chat + reliable tool use. |
+| Pro | **32-64 GB** | 14-32B models (`qwen3:32b`, `gemma3:27b`), or vision models | Best recall quality, multi-image inputs, fast tool loops. |
+| Power | **64 GB+** | 70B+ models, or running multiple models at once | Anything Ollama supports. |
+
+- **Disk:** ~500 MB for Python + the embedding model MemPalace pulls on first search, plus **2-30 GB per Ollama model** you install. Keep at least 20 GB free if you plan to try a few models.
+- **GPU:** not required separately — on Apple Silicon, Ollama uses Metal automatically. On other platforms a CUDA GPU dramatically speeds up Ollama but isn't strictly needed.
+- **Microphone:** required only if you want voice input.
 
 ## Setup
 
