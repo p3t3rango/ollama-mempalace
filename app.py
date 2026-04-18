@@ -246,6 +246,89 @@ async def model_info(model: str):
     return out
 
 
+@app.get("/api/models/installed")
+async def installed_models():
+    """Detailed list of installed Ollama models — name, size, digest, modified."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{OLLAMA_HOST}/api/tags")
+            r.raise_for_status()
+            data = r.json()
+        return {"models": data.get("models", [])}
+    except Exception as e:
+        raise HTTPException(502, f"Ollama unreachable: {e}")
+
+
+class ModelNameBody(BaseModel):
+    name: str
+
+
+@app.delete("/api/models/{name:path}")
+async def delete_model(name: str):
+    """Delete an installed Ollama model."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.request(
+                "DELETE",
+                f"{OLLAMA_HOST}/api/delete",
+                json={"name": name},
+            )
+        if r.status_code != 200:
+            raise HTTPException(r.status_code, f"Ollama delete: {r.text[:300]}")
+        # Bust caches
+        _MODEL_INFO_CACHE.pop(name, None)
+        return {"ok": True, "deleted": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Ollama unreachable: {e}")
+
+
+@app.post("/api/models/pull")
+async def pull_model(body: ModelNameBody):
+    """Pull a model. Streams Ollama's progress events as SSE."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "model name required")
+
+    async def gen():
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream(
+                    "POST",
+                    f"{OLLAMA_HOST}/api/pull",
+                    json={"name": name, "stream": True},
+                ) as r:
+                    if r.status_code != 200:
+                        body_text = (await r.aread()).decode("utf-8", "replace")
+                        yield (
+                            "data: "
+                            + json.dumps(
+                                {"type": "error", "message": f"Ollama {r.status_code}: {body_text[:300]}"}
+                            )
+                            + "\n\n"
+                        )
+                        return
+                    async for line in r.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        yield "data: " + json.dumps(chunk) + "\n\n"
+                        if chunk.get("status") == "success":
+                            return
+        except Exception as e:
+            yield (
+                "data: "
+                + json.dumps({"type": "error", "message": str(e)})
+                + "\n\n"
+            )
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 @app.get("/api/wings")
 async def list_wings():
     col = _safe_collection()

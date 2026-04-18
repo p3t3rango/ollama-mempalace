@@ -182,6 +182,7 @@
             <button class="settings-tab" data-pane="conversation">Conversation</button>
             <button class="settings-tab" data-pane="voice">Voice</button>
             <button class="settings-tab" data-pane="wing-data">Wing data</button>
+            <button class="settings-tab" data-pane="models">Models</button>
             <button class="settings-tab" data-pane="reference">Reference</button>
           </nav>
           <div class="settings-body">
@@ -381,6 +382,35 @@
                   <button id="import-convos-btn" class="primary" type="button">Import</button>
                 </div>
                 <span id="import-convos-status" class="muted"></span>
+              </section>
+            </div>
+
+            <!-- ─── Models ──────────────────────────────────────────────── -->
+            <div class="settings-pane" data-pane="models" hidden>
+              <section>
+                <h3>Installed Ollama models</h3>
+                <span class="caption">
+                  Manage Ollama models without leaving the app. Sizes are on disk;
+                  pulling a new model downloads to <code>~/.ollama/models</code>.
+                </span>
+                <div id="installed-models-list"></div>
+                <div class="row" style="margin-top: 6px">
+                  <button id="refresh-installed-models" class="ghost" type="button">Refresh</button>
+                </div>
+              </section>
+
+              <section>
+                <h3>Pull a new model</h3>
+                <span class="caption">
+                  Browse the catalog at <a href="https://ollama.com/library" target="_blank" rel="noopener">ollama.com/library</a>
+                  for tag names. Common pattern: <code>name:tag</code> e.g. <code>llama4:scout</code>,
+                  <code>qwen3.6:35b-a3b-q4_K_M</code>. Large pulls take minutes.
+                </span>
+                <div class="row" style="margin-top: 8px">
+                  <input id="pull-model-name" type="text" placeholder="e.g. llama4:scout" style="flex:1" />
+                  <button id="pull-model-btn" class="primary" type="button">Pull</button>
+                </div>
+                <div id="pull-progress" class="muted" style="margin-top: 8px; font-family: var(--mono); font-size: 11px"></div>
               </section>
             </div>
 

@@ -543,6 +543,41 @@ button {
   margin-left: 8px;
 }
 
+/* Models list */
+.model-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.model-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.model-name {
+  font-family: var(--mono);
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-meta {
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
 .attachment-empty {
   color: var(--fg-muted);
   font-size: 12px;

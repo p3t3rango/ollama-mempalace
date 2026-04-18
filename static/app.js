@@ -355,6 +355,7 @@ function renderSessions() {
       item.innerHTML = `
         <span class="title">${mark}${escapeHtml(s.title || "Untitled")}</span>
         <span class="actions">
+          <button class="session-btn export" title="Export as markdown">⤓</button>
           <button class="session-btn rename" title="Rename">✎</button>
           <button class="session-btn delete" title="Delete">✕</button>
         </span>
@@ -362,6 +363,10 @@ function renderSessions() {
       item.addEventListener("click", (e) => {
         if (e.target.classList.contains("session-btn")) return;
         setActive(s.id);
+      });
+      item.querySelector(".export").addEventListener("click", (e) => {
+        e.stopPropagation();
+        exportSessionAsMarkdown(s);
       });
       item.querySelector(".rename").addEventListener("click", (e) => {
         e.stopPropagation();
@@ -397,6 +402,79 @@ function renderSessions() {
     }
     els.sessions.appendChild(groupEl);
   }
+}
+
+function exportSessionAsMarkdown(s) {
+  const fmtDate = (ts) => {
+    if (!ts) return "?";
+    try {
+      return new Date(ts).toISOString();
+    } catch {
+      return String(ts);
+    }
+  };
+  const lines = [];
+  lines.push("---");
+  lines.push(`title: ${JSON.stringify(s.title || "Untitled")}`);
+  lines.push(`wing: ${s.wing || ""}`);
+  lines.push(`room: ${s.room || ""}`);
+  lines.push(`persona: ${s.persona || "default"}`);
+  lines.push(`model: ${s.model || ""}`);
+  lines.push(`anonymous: ${s.anonymous ? "true" : "false"}`);
+  lines.push(`created: ${fmtDate(s.createdAt)}`);
+  lines.push(`updated: ${fmtDate(s.updatedAt)}`);
+  lines.push(`turns: ${s.messages?.length || 0}`);
+  lines.push("---");
+  lines.push("");
+  lines.push(`# ${s.title || "Untitled"}`);
+  lines.push("");
+  for (const m of s.messages || []) {
+    const role = m.role === "assistant" ? "**Assistant**" : "**You**";
+    lines.push(`---`);
+    lines.push("");
+    lines.push(role);
+    lines.push("");
+    if (m.attachments && m.attachments.length) {
+      lines.push(`*📎 attached: ${m.attachments.join(", ")}*`);
+      lines.push("");
+    }
+    if (m.thinking && m.role === "assistant") {
+      lines.push(`<details><summary>💭 thoughts</summary>\n\n${m.thinking}\n\n</details>`);
+      lines.push("");
+    }
+    const body = m.role === "user" && m.displayContent ? m.displayContent : m.content || "";
+    lines.push(body);
+    lines.push("");
+    if (m.role === "assistant" && m.toolCalls && m.toolCalls.length) {
+      lines.push(`*🔧 tool calls: ${m.toolCalls.map((t) => t.name).join(", ")}*`);
+      lines.push("");
+    }
+    if (m.role === "assistant" && m.stats) {
+      lines.push(
+        `*${m.stats.tokens} tok · ${m.stats.elapsed.toFixed(1)}s · ${m.stats.tps.toFixed(1)} tok/s*`,
+      );
+      lines.push("");
+    }
+  }
+  const md = lines.join("\n");
+  const blob = new Blob([md], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const safeTitle =
+    (s.title || "chat").replace(/[^\w\s.-]/g, "").trim().slice(0, 60).replace(/\s+/g, "-") ||
+    "chat";
+  const a = document.createElement("a");
+  a.href = url;
+  const stamp = new Date(s.updatedAt || Date.now())
+    .toISOString()
+    .slice(0, 10);
+  a.download = `${stamp}-${safeTitle}.md`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+  setStatus(`exported ${a.download}`, "ok");
 }
 
 function ensureSession() {
@@ -1368,6 +1446,119 @@ async function openSettings() {
   loadAttachments();
   loadAaak();
   loadVoices();
+  loadInstalledModels();
+}
+
+async function loadInstalledModels() {
+  const host = document.getElementById("installed-models-list");
+  if (!host) return;
+  host.innerHTML = '<div class="muted">loading…</div>';
+  try {
+    const r = await fetch("/api/models/installed");
+    const d = await r.json();
+    const models = d.models || [];
+    if (!models.length) {
+      host.innerHTML = '<div class="muted">no models installed yet</div>';
+      return;
+    }
+    host.innerHTML = "";
+    for (const m of models) {
+      const row = document.createElement("div");
+      row.className = "model-row";
+      const sizeGb = (m.size / 1024 / 1024 / 1024).toFixed(1);
+      const params = m.details?.parameter_size || "?";
+      const quant = m.details?.quantization_level || "?";
+      row.innerHTML = `
+        <div class="model-info">
+          <span class="model-name">${escapeHtml(m.name)}</span>
+          <span class="model-meta">${sizeGb} GB · ${escapeHtml(params)} · ${escapeHtml(quant)}</span>
+        </div>
+        <button class="danger del-model" data-name="${escapeHtml(m.name)}" type="button">delete</button>
+      `;
+      row.querySelector(".del-model").addEventListener("click", async () => {
+        if (!confirm(`Delete model "${m.name}"? This frees ~${sizeGb} GB of disk and cannot be undone via the UI.`))
+          return;
+        try {
+          const dr = await fetch(`/api/models/${encodeURIComponent(m.name)}`, {
+            method: "DELETE",
+          });
+          const dd = await dr.json();
+          if (!dr.ok) throw new Error(dd.detail || "failed");
+          setStatus(`deleted ${m.name}`, "warn");
+          await loadInstalledModels();
+          await loadModels();
+        } catch (e) {
+          alert(`delete failed: ${e.message}`);
+        }
+      });
+      host.appendChild(row);
+    }
+  } catch (e) {
+    host.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function pullModelFlow() {
+  const inp = document.getElementById("pull-model-name");
+  const progress = document.getElementById("pull-progress");
+  const btn = document.getElementById("pull-model-btn");
+  const name = (inp.value || "").trim();
+  if (!name) return;
+  btn.disabled = true;
+  progress.textContent = "starting…";
+  try {
+    const r = await fetch("/api/models/pull", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        for (const line of block.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === "error") {
+              progress.textContent = `error: ${evt.message}`;
+              return;
+            }
+            const status = evt.status || "";
+            const total = evt.total;
+            const completed = evt.completed;
+            if (total && completed) {
+              const pct = ((completed / total) * 100).toFixed(0);
+              const mb = (completed / 1024 / 1024).toFixed(0);
+              const totalMb = (total / 1024 / 1024).toFixed(0);
+              progress.textContent = `${status} — ${pct}% (${mb} / ${totalMb} MB)`;
+            } else {
+              progress.textContent = status;
+            }
+            if (status === "success") {
+              progress.textContent = `pulled ${name} ✓`;
+              await loadInstalledModels();
+              await loadModels();
+              inp.value = "";
+              return;
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch (e) {
+    progress.textContent = `error: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function showSettingsPane(name) {
@@ -1382,6 +1573,12 @@ function showSettingsPane(name) {
 
 document.querySelectorAll(".settings-tab").forEach((t) => {
   t.addEventListener("click", () => showSettingsPane(t.dataset.pane));
+});
+
+// Models pane wireup
+document.addEventListener("click", (e) => {
+  if (e.target.id === "refresh-installed-models") loadInstalledModels();
+  if (e.target.id === "pull-model-btn") pullModelFlow();
 });
 
 /* ─── Attachments ─────────────────────────────────────────────────────── */
