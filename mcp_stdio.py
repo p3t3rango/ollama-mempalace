@@ -7,9 +7,9 @@ adding to that client's MCP config. Example for Claude Desktop
     {
       "mcpServers": {
         "mempalace": {
-          "command": "/Users/peterarango/cursor experiments/ollama-mempalace/.venv/bin/python",
+          "command": "/Users/peterarango/cursor experiments/keepers-temple/.venv/bin/python",
           "args": [
-            "/Users/peterarango/cursor experiments/ollama-mempalace/mcp_stdio.py"
+            "/Users/peterarango/cursor experiments/keepers-temple/mcp_stdio.py"
           ]
         }
       }

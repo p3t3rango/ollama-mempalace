@@ -57,8 +57,8 @@ Ollama gives you great local models. MemPalace gives you a serious memory backen
 ## Setup
 
 ```bash
-git clone https://github.com/p3t3rango/ollama-mempalace.git
-cd ollama-mempalace
+git clone https://github.com/p3t3rango/keepers-temple.git
+cd keepers-temple
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -149,9 +149,9 @@ write to the diary, etc., through the standard protocol.
 {
   "mcpServers": {
     "mempalace": {
-      "command": "/absolute/path/to/ollama-mempalace/.venv/bin/python",
+      "command": "/absolute/path/to/keepers-temple/.venv/bin/python",
       "args": [
-        "/absolute/path/to/ollama-mempalace/mcp_stdio.py"
+        "/absolute/path/to/keepers-temple/mcp_stdio.py"
       ]
     }
   }
