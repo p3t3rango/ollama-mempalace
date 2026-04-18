@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -14,7 +15,7 @@ from typing import Optional
 
 import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -127,6 +128,12 @@ class PersonaBody(BaseModel):
     name: str
     description: str = ""
     identity: str
+
+
+class SpeakBody(BaseModel):
+    text: str
+    voice: Optional[str] = None
+    rate: Optional[int] = None  # words per minute
 
 
 class DrawerUpdate(BaseModel):
@@ -876,6 +883,105 @@ async def transcribe_endpoint(
             os.unlink(tmp.name)
         except OSError:
             pass
+
+
+# ─── Voice output (macOS `say`) ───────────────────────────────────────────
+
+
+_VOICES_CACHE: Optional[list[dict]] = None
+
+
+@app.get("/api/voices")
+async def list_voices(lang_prefix: Optional[str] = "en"):
+    """List available macOS TTS voices. Filter to a language prefix (default: en)."""
+    global _VOICES_CACHE
+    if _VOICES_CACHE is None:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "say", "-v", "?", stdout=asyncio.subprocess.PIPE
+            )
+            out, _ = await proc.communicate()
+        except FileNotFoundError:
+            raise HTTPException(500, "macOS `say` command not found")
+        voices: list[dict] = []
+        for raw in out.decode("utf-8", errors="replace").splitlines():
+            # Format: "Name              lang_LL    # comment"
+            line = raw.rstrip()
+            if not line:
+                continue
+            # Find the language code (xx_YY) — split on it for robustness with
+            # voices that have spaces in their names ("Bad News", "Eddy (German …)")
+            m = re.search(r"\s+([a-z]{2}_[A-Z]{2})\s+", line)
+            if not m:
+                continue
+            name = line[: m.start()].strip()
+            lang = m.group(1)
+            comment = line[m.end():].lstrip("# ").strip()
+            voices.append({"name": name, "lang": lang, "sample": comment})
+        _VOICES_CACHE = voices
+    voices = _VOICES_CACHE
+    if lang_prefix:
+        voices = [v for v in voices if v["lang"].startswith(lang_prefix)]
+    voices.sort(key=lambda v: v["name"])
+    return {"voices": voices}
+
+
+@app.post("/api/speak")
+async def speak(body: SpeakBody):
+    """Synthesize text via macOS `say` and return a WAV blob."""
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(400, "empty text")
+    if len(text) > 8000:
+        # Cap so a runaway response can't tie up TTS forever
+        text = text[:8000]
+
+    voice = (body.voice or "Samantha").strip()
+    # Sanitize: macOS voice names use letters, spaces, parens, accents.
+    if any(c in voice for c in ("\n", "\r", "\x00")):
+        raise HTTPException(400, "invalid voice name")
+
+    aiff_fd, aiff_path = tempfile.mkstemp(suffix=".aiff")
+    os.close(aiff_fd)
+    wav_fd, wav_path = tempfile.mkstemp(suffix=".wav")
+    os.close(wav_fd)
+
+    try:
+        say_args = ["say", "-v", voice, "-o", aiff_path]
+        if body.rate and 80 <= body.rate <= 500:
+            say_args += ["-r", str(body.rate)]
+        say_args.append(text)
+        proc = await asyncio.create_subprocess_exec(
+            *say_args,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await proc.communicate()
+        if proc.returncode != 0:
+            raise HTTPException(500, f"say failed: {err.decode('utf-8', 'replace')[:200]}")
+
+        # Convert AIFF → 16-bit mono PCM WAV @ 22050 Hz (broadly compatible)
+        proc = await asyncio.create_subprocess_exec(
+            "afconvert", "-f", "WAVE", "-d", "LEI16@22050", "-c", "1",
+            aiff_path, wav_path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await proc.communicate()
+        if proc.returncode != 0:
+            raise HTTPException(
+                500, f"afconvert failed: {err.decode('utf-8', 'replace')[:200]}"
+            )
+
+        with open(wav_path, "rb") as f:
+            data = f.read()
+        return Response(content=data, media_type="audio/wav")
+    finally:
+        for p in (aiff_path, wav_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 # ─── Personas ─────────────────────────────────────────────────────────────

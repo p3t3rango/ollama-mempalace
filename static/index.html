@@ -310,6 +310,29 @@
           </section>
 
           <section>
+            <h3>Voice output (macOS speech)</h3>
+            <span class="caption">
+              The assistant's responses can be spoken aloud using macOS's built-in
+              speech synthesizer (the same engine as <code>say</code>). Zero install,
+              fully local, instant. Pick any installed system voice.
+            </span>
+            <div class="grid">
+              <label class="check">
+                <input id="t-tts" type="checkbox" />
+                Speak assistant responses aloud
+              </label>
+              <label>
+                Voice
+                <select id="tts-voice"></select>
+              </label>
+              <label>
+                Rate (words / minute, blank = default)
+                <input id="tts-rate" type="number" min="80" max="500" placeholder="200" />
+              </label>
+            </div>
+          </section>
+
+          <section>
             <h3>Voice input (Whisper)</h3>
             <span class="caption">
               Click the mic in the composer to dictate. Whisper runs locally on

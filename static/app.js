@@ -108,6 +108,9 @@ const els = {
   composerMic: $("composer-mic"),
   composerRecall: $("composer-recall"),
   whisperModel: $("whisper-model"),
+  tTts: $("t-tts"),
+  ttsVoice: $("tts-voice"),
+  ttsRate: $("tts-rate"),
   model: $("model"),
   toggleMemoryPane: $("toggle-memory-pane"),
   memoryPane: $("memory-pane"),
@@ -1075,6 +1078,10 @@ async function sendMessage(text) {
             } else {
               setStatus("done", "");
             }
+            // Speak the response if TTS is enabled
+            if (ttsPrefs().enabled && asstMsg.content && !session.anonymous) {
+              speakText(asstMsg.content);
+            }
             session.updatedAt = now();
             saveJSON(SESSIONS_KEY, state.sessions);
             renderMessages();
@@ -1131,6 +1138,8 @@ function stopGeneration() {
     activeAbort.abort();
     activeAbort = null;
   }
+  // Stop any in-flight TTS playback as well
+  stopActiveAudio();
 }
 
 /* ─── Wing operations ─────────────────────────────────────────────────── */
@@ -1294,6 +1303,7 @@ async function openSettings() {
   loadWakeup();
   loadAttachments();
   loadAaak();
+  loadVoices();
 }
 
 /* ─── Attachments ─────────────────────────────────────────────────────── */
@@ -1773,6 +1783,118 @@ if (els.whisperModel) {
   els.whisperModel.value = preferredWhisperModel();
   els.whisperModel.addEventListener("change", () => {
     localStorage.setItem(WHISPER_PREF_KEY, els.whisperModel.value);
+  });
+}
+
+/* ─── Voice output (TTS via macOS `say`) ──────────────────────────────── */
+
+const TTS_PREF_KEY = "ollama-mempalace.tts";
+
+function ttsPrefs() {
+  return loadJSON(TTS_PREF_KEY, { enabled: false, voice: "Samantha", rate: null });
+}
+
+function saveTtsPrefs(p) {
+  saveJSON(TTS_PREF_KEY, p);
+}
+
+let voicesLoaded = false;
+async function loadVoices() {
+  if (voicesLoaded || !els.ttsVoice) return;
+  voicesLoaded = true;
+  try {
+    const r = await fetch("/api/voices?lang_prefix=en");
+    const d = await r.json();
+    const cur = ttsPrefs().voice || "Samantha";
+    els.ttsVoice.innerHTML = (d.voices || [])
+      .map(
+        (v) =>
+          `<option value="${escapeHtml(v.name)}">${escapeHtml(v.name)} · ${escapeHtml(v.lang)}</option>`,
+      )
+      .join("");
+    if ([...els.ttsVoice.options].some((o) => o.value === cur)) {
+      els.ttsVoice.value = cur;
+    }
+  } catch (e) {
+    voicesLoaded = false;
+    setStatus(`voices: ${e.message}`, "err");
+  }
+}
+
+let activeAudio = null;
+
+function stopActiveAudio() {
+  if (activeAudio) {
+    try {
+      activeAudio.pause();
+      if (activeAudio.src && activeAudio.src.startsWith("blob:")) {
+        URL.revokeObjectURL(activeAudio.src);
+      }
+    } catch {}
+    activeAudio = null;
+  }
+}
+
+async function speakText(text) {
+  const t = (text || "").trim();
+  if (!t) return;
+  const prefs = ttsPrefs();
+  stopActiveAudio();
+  try {
+    const r = await fetch("/api/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: t,
+        voice: prefs.voice || "Samantha",
+        rate: prefs.rate || undefined,
+      }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    activeAudio = audio;
+    audio.onended = () => {
+      URL.revokeObjectURL(url);
+      if (activeAudio === audio) activeAudio = null;
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      if (activeAudio === audio) activeAudio = null;
+    };
+    await audio.play();
+  } catch (e) {
+    setStatus(`speak failed: ${e.message}`, "err");
+  }
+}
+
+if (els.tTts) {
+  const p = ttsPrefs();
+  els.tTts.checked = !!p.enabled;
+  if (els.ttsRate && p.rate) els.ttsRate.value = p.rate;
+  els.tTts.addEventListener("change", () => {
+    const p2 = ttsPrefs();
+    p2.enabled = els.tTts.checked;
+    saveTtsPrefs(p2);
+    if (p2.enabled) loadVoices();
+  });
+}
+
+if (els.ttsVoice) {
+  els.ttsVoice.addEventListener("change", () => {
+    const p = ttsPrefs();
+    p.voice = els.ttsVoice.value;
+    saveTtsPrefs(p);
+  });
+}
+
+if (els.ttsRate) {
+  els.ttsRate.addEventListener("change", () => {
+    const p = ttsPrefs();
+    const v = parseInt(els.ttsRate.value, 10);
+    p.rate = Number.isFinite(v) && v >= 80 && v <= 500 ? v : null;
+    saveTtsPrefs(p);
   });
 }
 
