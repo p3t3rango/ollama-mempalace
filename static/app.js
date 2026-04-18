@@ -2754,7 +2754,17 @@ if (els.tAutoKg) prefInputs.push(els.tAutoKg);
 prefInputs.forEach((el) => el.addEventListener("change", savePrefs));
 
 if (els.model) {
-  els.model.addEventListener("change", refreshTokenMeter);
+  els.model.addEventListener("change", () => {
+    // Picking a new model should immediately apply to the active session
+    // and the token meter (otherwise the meter keeps showing the
+    // session's original model's context length).
+    const s = getActiveSession();
+    if (s) {
+      s.model = els.model.value;
+      saveJSON(SESSIONS_KEY, state.sessions);
+    }
+    refreshTokenMeter();
+  });
 }
 
 els.wingPrompt.addEventListener("blur", saveWingPromptForCurrent);
