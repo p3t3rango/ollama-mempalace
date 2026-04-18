@@ -476,6 +476,10 @@ function renderMessages() {
     if (thinkingBody && m.thinking) {
       thinkingBody.innerHTML = renderMarkdown(m.thinking);
       attachCodeCopyButtons(thinkingBody);
+      // In preview mode, auto-scroll to keep the latest reasoning visible
+      if (div.querySelector(".msg-thinking.is-preview")) {
+        thinkingBody.scrollTop = thinkingBody.scrollHeight;
+      }
     }
     if (m.extracted && m.extracted.length) {
       const ex = document.createElement("div");
