@@ -404,6 +404,104 @@ function renderSessions() {
   }
 }
 
+function startEditMessage(idx) {
+  const session = getActiveSession();
+  if (!session || !session.messages[idx] || session.messages[idx].role !== "user") return;
+  const m = session.messages[idx];
+  const original = m.displayContent || m.content || "";
+  const card = els.messages.children[idx];
+  if (!card) return;
+  card.innerHTML = `
+    <span class="role">${m.role} · editing</span>
+    <textarea class="edit-area"></textarea>
+    <div class="edit-actions">
+      <button type="button" class="primary save-edit">Save & resend</button>
+      <button type="button" class="ghost cancel-edit">Cancel</button>
+    </div>
+  `;
+  const ta = card.querySelector("textarea");
+  ta.value = original;
+  ta.focus();
+  ta.style.height = "auto";
+  ta.style.height = ta.scrollHeight + "px";
+  card.querySelector(".cancel-edit").addEventListener("click", () => renderMessages());
+  card.querySelector(".save-edit").addEventListener("click", () => {
+    const next = ta.value.trim();
+    if (!next) return;
+    session.messages.splice(idx);
+    saveJSON(SESSIONS_KEY, state.sessions);
+    sendMessage(next);
+  });
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      card.querySelector(".save-edit").click();
+    } else if (e.key === "Escape") {
+      renderMessages();
+    }
+  });
+}
+
+function regenerateAt(idx) {
+  const session = getActiveSession();
+  if (!session) return;
+  let userIdx = -1;
+  for (let j = idx - 1; j >= 0; j--) {
+    if (session.messages[j].role === "user") {
+      userIdx = j;
+      break;
+    }
+  }
+  if (userIdx < 0) return;
+  const userText =
+    session.messages[userIdx].displayContent || session.messages[userIdx].content;
+  session.messages.splice(userIdx);
+  saveJSON(SESSIONS_KEY, state.sessions);
+  sendMessage(userText);
+}
+
+function forkAt(idx) {
+  const src = getActiveSession();
+  if (!src) return;
+  const upto = src.messages.slice(0, idx + 1);
+  const clean = upto.map((m) => {
+    const c = { role: m.role, content: m.content };
+    if (m.displayContent) c.displayContent = m.displayContent;
+    if (m.attachments) c.attachments = [...m.attachments];
+    if (m.images) c.images = [...m.images];
+    if (m.thinking) c.thinking = m.thinking;
+    if (m.toolCalls) c.toolCalls = JSON.parse(JSON.stringify(m.toolCalls));
+    return c;
+  });
+  const fork = {
+    id: uuid(),
+    title: `Fork of ${src.title || "Untitled"}`,
+    wing: src.wing,
+    room: src.room,
+    model: src.model,
+    persona: src.persona,
+    createdAt: now(),
+    updatedAt: now(),
+    messages: clean,
+    anonymous: src.anonymous,
+    forkedFrom: { id: src.id, title: src.title, atTurn: idx },
+  };
+  state.sessions.unshift(fork);
+  state.activeId = fork.id;
+  localStorage.setItem(ACTIVE_KEY, fork.id);
+  saveJSON(SESSIONS_KEY, state.sessions);
+  renderSessions();
+  renderMessages();
+  setStatus(`forked at turn ${idx + 1} → "${fork.title}"`, "ok");
+}
+
+els.messages.addEventListener("click", (e) => {
+  const t = e.target;
+  if (t.classList.contains("edit-msg")) startEditMessage(Number(t.dataset.idx));
+  else if (t.classList.contains("regen-msg")) regenerateAt(Number(t.dataset.idx));
+  else if (t.classList.contains("fork-msg")) forkAt(Number(t.dataset.idx));
+});
+
 function exportSessionAsMarkdown(s) {
   const fmtDate = (ts) => {
     if (!ts) return "?";
@@ -581,7 +679,24 @@ function renderMessages() {
       const e = m.stats.elapsed.toFixed(1);
       statsTag = `<div class="msg-stats">${t} tok · ${e}s · ${tps} tok/s</div>`;
     }
-    div.innerHTML = `<span class="role">${m.role}</span>${thinkingTag}${toolsTag}${attachTag}<div class="markdown-body">${renderMarkdown(shown)}</div>${statsTag}`;
+    let actionsTag = "";
+    if (m.role === "user" && !activeAbort) {
+      actionsTag = `<div class="msg-actions">
+        <button type="button" class="msg-action fork-msg" data-idx="${i}" title="Fork into a new chat from this point">⑂</button>
+        <button type="button" class="msg-action edit-msg" data-idx="${i}" title="Edit and resend">✎</button>
+      </div>`;
+    } else if (
+      m.role === "assistant" &&
+      i === lastAsstIdx &&
+      !activeAbort &&
+      m.content
+    ) {
+      actionsTag = `<div class="msg-actions">
+        <button type="button" class="msg-action fork-msg" data-idx="${i}" title="Fork into a new chat from this point">⑂</button>
+        <button type="button" class="msg-action regen-msg" data-idx="${i}" title="Regenerate response">↻</button>
+      </div>`;
+    }
+    div.innerHTML = `<span class="role">${m.role}</span>${thinkingTag}${toolsTag}${attachTag}<div class="markdown-body">${renderMarkdown(shown)}</div>${statsTag}${actionsTag}`;
     attachCodeCopyButtons(div);
     // Render thinking body as markdown too (model often uses markdown in CoT)
     const thinkingBody = div.querySelector(".thinking-body");
