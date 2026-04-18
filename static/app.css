@@ -1347,25 +1347,24 @@ textarea::placeholder {
   display: none;
 }
 
-/* Thinking indicator — small pill by default, expands to a scrollable block. */
+/* Thinking indicator — Ollama-style: clean inline text + lightbulb. */
 .msg-thinking {
-  display: inline-block;
-  margin: 2px 0 8px;
+  display: block;
+  margin: 4px 0 12px;
 }
 
 .msg-thinking summary {
   list-style: none;
   cursor: pointer;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--fg-muted);
-  padding: 3px 10px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--fg-dim);
+  padding: 0;
+  background: transparent;
+  border: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   user-select: none;
 }
 
@@ -1376,23 +1375,17 @@ textarea::placeholder {
 }
 
 .msg-thinking summary:hover {
-  background: var(--bg-2);
-  color: var(--fg-dim);
-  border-color: var(--border-2);
+  color: var(--fg);
 }
 
-.think-count {
-  color: var(--fg-muted);
-  font-size: 10px;
-}
-
-.msg-thinking[open] {
-  display: block;
-  margin-bottom: 10px;
+.think-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .msg-thinking[open] summary {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .msg-thinking .thinking-body {

@@ -443,12 +443,10 @@ function renderMessages() {
     let thinkingTag = "";
     const think = (m.thinking || "").trim();
     if (think) {
-      const words = think.split(/\s+/).filter(Boolean).length;
       const stillThinking = !(m.content && m.content.trim());
-      const label = stillThinking
-        ? `thinking… <span class="think-count">${words}w</span>`
-        : `thought for ${words} words`;
-      thinkingTag = `<details class="msg-thinking"><summary>💭 ${label}</summary><div class="thinking-body">${escapeHtml(think)}</div></details>`;
+      const label = stillThinking ? "Thinking…" : "Thoughts";
+      const icon = `<svg class="think-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 1 4 12.7c-.6.5-1 1.3-1 2.1V18H9v-1.2c0-.8-.4-1.6-1-2.1A7 7 0 0 1 12 2z"/></svg>`;
+      thinkingTag = `<details class="msg-thinking"${stillThinking ? " open" : ""}><summary>${icon}<span class="think-label">${label}</span></summary><div class="thinking-body">${escapeHtml(think)}</div></details>`;
     }
     const toolsTag =
       m.toolCalls && m.toolCalls.length
@@ -1714,7 +1712,7 @@ async function handleMicStop() {
       els.input.value = cur ? `${cur} ${text}` : text;
       els.input.dispatchEvent(new Event("input"));
       els.input.focus();
-      setStatus(`transcribed (${text.split(/\s+/).length} words)`, "ok");
+      // Silently fill — no toast. The text appearing IS the feedback.
     } else {
       setStatus("transcription empty", "warn");
     }
