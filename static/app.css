@@ -68,7 +68,9 @@ body {
 body {
   display: grid;
   grid-template-columns: 280px 1fr auto;
+  grid-template-rows: 100vh;
   height: 100vh;
+  overflow: hidden;
 }
 
 body.no-sidebar {

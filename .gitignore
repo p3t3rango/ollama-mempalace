@@ -13,3 +13,6 @@ mempalace-src/
 # Editor
 .vscode/
 .idea/
+
+# Local-only working notes
+ROADMAP.md
