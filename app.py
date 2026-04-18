@@ -81,6 +81,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 class Message(BaseModel):
     role: str
     content: str
+    # Optional list of base64-encoded images (no data: prefix). Forwarded to
+    # vision-capable Ollama models via the `images` field on the message dict.
+    images: Optional[list[str]] = None
 
 
 class ChatRequest(BaseModel):
@@ -1078,7 +1081,10 @@ async def chat(req: ChatRequest):
         out_messages.append({"role": "system", "content": memory_block})
 
     for m in req.messages:
-        out_messages.append({"role": m.role, "content": m.content})
+        msg_dict: dict = {"role": m.role, "content": m.content}
+        if m.images:
+            msg_dict["images"] = m.images
+        out_messages.append(msg_dict)
 
     async def generate():
         meta = {

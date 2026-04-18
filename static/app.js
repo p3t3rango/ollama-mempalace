@@ -176,6 +176,51 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
+const MD_OPTS = { breaks: true, gfm: true };
+
+// Render markdown safely. Falls back to escaped text if marked/DOMPurify
+// haven't loaded yet (e.g. CDN slow). Adds copy buttons to code blocks.
+function renderMarkdown(text) {
+  const raw = text ?? "";
+  if (!window.marked || !window.DOMPurify) return escapeHtml(raw);
+  try {
+    const html = window.marked.parse(raw, MD_OPTS);
+    const clean = window.DOMPurify.sanitize(html, {
+      ADD_ATTR: ["target", "rel"],
+    });
+    return clean;
+  } catch {
+    return escapeHtml(raw);
+  }
+}
+
+// After rendering markdown into the DOM, walk all <pre><code> blocks and
+// inject a copy button. Idempotent — won't double-add.
+function attachCodeCopyButtons(rootEl) {
+  const blocks = rootEl.querySelectorAll("pre > code");
+  blocks.forEach((code) => {
+    const pre = code.parentElement;
+    if (pre.querySelector(".code-copy-btn")) return;
+    pre.classList.add("with-copy");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "code-copy-btn";
+    btn.textContent = "copy";
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(code.innerText);
+        btn.textContent = "✓ copied";
+        setTimeout(() => (btn.textContent = "copy"), 1400);
+      } catch {
+        btn.textContent = "✗";
+        setTimeout(() => (btn.textContent = "copy"), 1400);
+      }
+    });
+    pre.appendChild(btn);
+  });
+}
+
 function setStatus(text, kind = "") {
   els.status.textContent = text;
   els.status.className = `${kind} show`;
@@ -360,7 +405,14 @@ function renderMessages() {
   els.emptyState.hidden = true;
   els.messages.hidden = false;
   els.messages.innerHTML = "";
-  for (const m of s.messages) {
+  const lastAsstIdx = (() => {
+    for (let i = s.messages.length - 1; i >= 0; i--) {
+      if (s.messages[i].role === "assistant") return i;
+    }
+    return -1;
+  })();
+  for (let i = 0; i < s.messages.length; i++) {
+    const m = s.messages[i];
     const div = document.createElement("div");
     div.className = `msg ${m.role}`;
     const shown =
@@ -397,7 +449,14 @@ function renderMessages() {
             })
             .join("")}</div>`
         : "";
-    div.innerHTML = `<span class="role">${m.role}</span>${thinkingTag}${toolsTag}${attachTag}${escapeHtml(shown)}`;
+    div.innerHTML = `<span class="role">${m.role}</span>${thinkingTag}${toolsTag}${attachTag}<div class="markdown-body">${renderMarkdown(shown)}</div>`;
+    attachCodeCopyButtons(div);
+    // Render thinking body as markdown too (model often uses markdown in CoT)
+    const thinkingBody = div.querySelector(".thinking-body");
+    if (thinkingBody && m.thinking) {
+      thinkingBody.innerHTML = renderMarkdown(m.thinking);
+      attachCodeCopyButtons(thinkingBody);
+    }
     if (m.extracted && m.extracted.length) {
       const ex = document.createElement("div");
       ex.className = "extracted";
@@ -646,6 +705,21 @@ async function loadWakeup() {
 
 /* ─── Chat ─────────────────────────────────────────────────────────────── */
 
+let activeAbort = null;
+
+function setSendingState(sending) {
+  if (sending) {
+    els.send.classList.add("stopping");
+    els.send.title = "Stop generation";
+    els.send.innerHTML = "■";
+  } else {
+    els.send.classList.remove("stopping");
+    els.send.title = "Send (⌘↵)";
+    els.send.innerHTML = "↑";
+  }
+  els.send.disabled = false;
+}
+
 async function sendMessage(text) {
   let session = getActiveSession();
   if (!session) {
@@ -659,7 +733,8 @@ async function sendMessage(text) {
 
   // Fold any staged attachments into the user's message
   const preamble = buildAttachmentPreamble();
-  const attachedNames = pendingAttachments.map((p) => p.name);
+  const attachedNames = pendingFilenames();
+  const images = pendingImagesB64();
   const fullUserContent = preamble ? `${preamble}\n${text}` : text;
 
   const userMsg = {
@@ -668,6 +743,9 @@ async function sendMessage(text) {
     displayContent: text,
     attachments: attachedNames,
   };
+  if (images.length) {
+    userMsg.images = images;
+  }
   const asstMsg = { role: "assistant", content: "" };
   session.messages.push(userMsg, asstMsg);
   if (session.title === "New chat" || !session.title) {
@@ -678,14 +756,22 @@ async function sendMessage(text) {
   renderSessions();
   renderMessages();
 
-  els.send.disabled = true;
+  setSendingState(true);
   setStatus("…thinking", "");
+  activeAbort = new AbortController();
 
+  // Strip displayContent / attachments / dataUrl from outgoing messages —
+  // backend only knows role/content/images.
+  const wireMessages = session.messages.slice(0, -1).map((m) => {
+    const w = { role: m.role, content: m.content };
+    if (m.images) w.images = m.images;
+    return w;
+  });
   const body = {
     model: session.model,
     wing: session.wing,
     room: session.room,
-    messages: session.messages.slice(0, -1),
+    messages: wireMessages,
     use_memory: session.anonymous ? false : state.prefs.recall,
     save_to_memory: session.anonymous ? false : state.prefs.save,
     auto_extract: session.anonymous ? false : state.prefs.extract,
@@ -703,6 +789,7 @@ async function sendMessage(text) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: activeAbort.signal,
     });
     if (!resp.ok || !resp.body) {
       const errText = await resp.text();
@@ -784,16 +871,50 @@ async function sendMessage(text) {
       }
     }
   } catch (e) {
-    setStatus(e.message, "err");
-    asstMsg.content = assistantText || `[error: ${e.message}]`;
+    if (e.name === "AbortError") {
+      // User clicked stop. Append a marker to whatever streamed so far and
+      // save it to memory so we know the response was incomplete.
+      asstMsg.content = (assistantText || "") + "\n\n_[stopped]_";
+      asstMsg.stopped = true;
+      setStatus("stopped", "warn");
+      // Best-effort save the partial exchange (mirrors what /api/chat would
+      // do server-side if it had completed). Skipped for incognito sessions.
+      if (!session.anonymous && state.prefs.save !== false) {
+        try {
+          const transcript = `User: ${userMsg.displayContent || userMsg.content}\n\nAssistant: ${asstMsg.content}`;
+          await fetch(`/api/wings/${encodeURIComponent(session.wing)}/attach`, {
+            method: "POST",
+            body: (() => {
+              const fd = new FormData();
+              fd.append(
+                "file",
+                new Blob([transcript], { type: "text/plain" }),
+                `stopped-${Date.now()}.txt`,
+              );
+              return fd;
+            })(),
+          });
+        } catch {}
+      }
+    } else {
+      setStatus(e.message, "err");
+      asstMsg.content = assistantText || `[error: ${e.message}]`;
+    }
     renderMessages();
   } finally {
-    els.send.disabled = false;
-    // Clear staged attachments after the send (whether success or failure)
+    activeAbort = null;
+    setSendingState(false);
     pendingAttachments.length = 0;
     renderPendingAttachments();
     saveJSON(SESSIONS_KEY, state.sessions);
     loadWings(els.wing.value);
+  }
+}
+
+function stopGeneration() {
+  if (activeAbort) {
+    activeAbort.abort();
+    activeAbort = null;
   }
 }
 
@@ -862,6 +983,11 @@ async function deleteWing() {
 
 els.composer.addEventListener("submit", (e) => {
   e.preventDefault();
+  // If a generation is in flight, the send button acts as STOP instead.
+  if (activeAbort) {
+    stopGeneration();
+    return;
+  }
   const text = els.input.value.trim();
   if (!text) return;
   els.input.value = "";
@@ -1003,11 +1129,23 @@ const TEXT_EXTENSIONS = new Set([
   "svelte", "lua", "r", "kt", "swift", "dart", "ex", "exs", "elm",
 ]);
 
-function isLikelyText(file) {
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
+
+function fileExt(file) {
   const name = (file.name || "").toLowerCase();
   const i = name.lastIndexOf(".");
-  if (i < 0) return false;
-  return TEXT_EXTENSIONS.has(name.slice(i + 1));
+  return i < 0 ? "" : name.slice(i + 1);
+}
+
+function isLikelyText(file) {
+  return TEXT_EXTENSIONS.has(fileExt(file));
+}
+
+function isLikelyImage(file) {
+  return (
+    IMAGE_EXTENSIONS.has(fileExt(file)) ||
+    (file.type || "").startsWith("image/")
+  );
 }
 
 async function walkEntry(entry, out) {
@@ -1120,18 +1258,50 @@ const pendingAttachments = []; // { name, size, content }
 
 const STAGE_MAX_BYTES = 5 * 1024 * 1024;
 
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(file);
+  });
+}
+
 async function stageAttachment(file) {
-  if (!isLikelyText(file)) {
-    setStatus(`skipped ${file.name} (not text)`, "warn");
-    return;
-  }
   if (file.size > STAGE_MAX_BYTES) {
     setStatus(`skipped ${file.name} (>5MB)`, "warn");
     return;
   }
+  if (isLikelyImage(file)) {
+    try {
+      const dataUrl = await readFileAsDataURL(file);
+      // Strip the data:<mime>;base64, prefix — Ollama wants raw base64
+      const b64 = dataUrl.includes(",") ? dataUrl.split(",", 2)[1] : dataUrl;
+      pendingAttachments.push({
+        kind: "image",
+        name: file.name,
+        size: file.size,
+        dataUrl,
+        b64,
+      });
+      renderPendingAttachments();
+    } catch (e) {
+      setStatus(`failed to read ${file.name}: ${e.message}`, "err");
+    }
+    return;
+  }
+  if (!isLikelyText(file)) {
+    setStatus(`skipped ${file.name} (not text or image)`, "warn");
+    return;
+  }
   try {
     const content = await file.text();
-    pendingAttachments.push({ name: file.name, size: file.size, content });
+    pendingAttachments.push({
+      kind: "text",
+      name: file.name,
+      size: file.size,
+      content,
+    });
     renderPendingAttachments();
   } catch (e) {
     setStatus(`failed to read ${file.name}: ${e.message}`, "err");
@@ -1155,12 +1325,21 @@ function renderPendingAttachments() {
   pendingAttachments.forEach((p, i) => {
     const chip = document.createElement("div");
     chip.className = "pending-chip";
-    chip.innerHTML = `
-      <span>📎</span>
-      <span class="fname">${escapeHtml(p.name)}</span>
-      <span class="fsize">${(p.size / 1024).toFixed(1)} KB</span>
-      <span class="x" title="remove">×</span>
-    `;
+    if (p.kind === "image") {
+      chip.innerHTML = `
+        <img class="pchip-thumb" src="${escapeHtml(p.dataUrl)}" alt="" />
+        <span class="fname">${escapeHtml(p.name)}</span>
+        <span class="fsize">${(p.size / 1024).toFixed(1)} KB</span>
+        <span class="x" title="remove">×</span>
+      `;
+    } else {
+      chip.innerHTML = `
+        <span>📎</span>
+        <span class="fname">${escapeHtml(p.name)}</span>
+        <span class="fsize">${(p.size / 1024).toFixed(1)} KB</span>
+        <span class="x" title="remove">×</span>
+      `;
+    }
     chip.querySelector(".x").addEventListener("click", () => {
       pendingAttachments.splice(i, 1);
       renderPendingAttachments();
@@ -1170,12 +1349,20 @@ function renderPendingAttachments() {
 }
 
 function buildAttachmentPreamble() {
-  if (!pendingAttachments.length) return "";
-  const blocks = pendingAttachments.map(
-    (p) =>
-      `[Attached file: ${p.name}]\n${p.content}\n[End of ${p.name}]`,
-  );
-  return blocks.join("\n\n") + "\n\n";
+  const textParts = pendingAttachments
+    .filter((p) => p.kind !== "image")
+    .map((p) => `[Attached file: ${p.name}]\n${p.content}\n[End of ${p.name}]`);
+  return textParts.length ? textParts.join("\n\n") + "\n\n" : "";
+}
+
+function pendingImagesB64() {
+  return pendingAttachments
+    .filter((p) => p.kind === "image")
+    .map((p) => p.b64);
+}
+
+function pendingFilenames() {
+  return pendingAttachments.map((p) => p.name);
 }
 
 /* Composer + now stages; wing-permanent upload uses its own button. */
