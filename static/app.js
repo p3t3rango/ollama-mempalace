@@ -2545,10 +2545,8 @@ function saveTtsPrefs(p) {
   saveJSON(TTS_PREF_KEY, p);
 }
 
-let voicesLoaded = false;
 async function loadVoices() {
-  if (voicesLoaded || !els.ttsVoice) return;
-  voicesLoaded = true;
+  if (!els.ttsVoice) return;
   try {
     const r = await fetch("/api/voices?lang_prefix=en");
     const d = await r.json();
@@ -2563,7 +2561,6 @@ async function loadVoices() {
       els.ttsVoice.value = cur;
     }
   } catch (e) {
-    voicesLoaded = false;
     setStatus(`voices: ${e.message}`, "err");
   }
 }

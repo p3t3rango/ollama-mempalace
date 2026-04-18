@@ -1295,38 +1295,35 @@ async def transcribe_endpoint(
 # ─── Voice output (macOS `say`) ───────────────────────────────────────────
 
 
-_VOICES_CACHE: Optional[list[dict]] = None
-
-
 @app.get("/api/voices")
 async def list_voices(lang_prefix: Optional[str] = "en"):
-    """List available macOS TTS voices. Filter to a language prefix (default: en)."""
-    global _VOICES_CACHE
-    if _VOICES_CACHE is None:
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "say", "-v", "?", stdout=asyncio.subprocess.PIPE
-            )
-            out, _ = await proc.communicate()
-        except FileNotFoundError:
-            raise HTTPException(500, "macOS `say` command not found")
-        voices: list[dict] = []
-        for raw in out.decode("utf-8", errors="replace").splitlines():
-            # Format: "Name              lang_LL    # comment"
-            line = raw.rstrip()
-            if not line:
-                continue
-            # Find the language code (xx_YY) — split on it for robustness with
-            # voices that have spaces in their names ("Bad News", "Eddy (German …)")
-            m = re.search(r"\s+([a-z]{2}_[A-Z]{2})\s+", line)
-            if not m:
-                continue
-            name = line[: m.start()].strip()
-            lang = m.group(1)
-            comment = line[m.end():].lstrip("# ").strip()
-            voices.append({"name": name, "lang": lang, "sample": comment})
-        _VOICES_CACHE = voices
-    voices = _VOICES_CACHE
+    """List available macOS TTS voices. Filter to a language prefix (default: en).
+
+    No caching — `say -v ?` is cheap (~50ms) and caching meant newly installed
+    Premium voices wouldn't show up until the server restarted.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "say", "-v", "?", stdout=asyncio.subprocess.PIPE
+        )
+        out, _ = await proc.communicate()
+    except FileNotFoundError:
+        raise HTTPException(500, "macOS `say` command not found")
+    voices: list[dict] = []
+    for raw in out.decode("utf-8", errors="replace").splitlines():
+        # Format: "Name              lang_LL    # comment"
+        line = raw.rstrip()
+        if not line:
+            continue
+        # Find the language code (xx_YY) — split on it for robustness with
+        # voices that have spaces in their names ("Bad News", "Eddy (German …)")
+        m = re.search(r"\s+([a-z]{2}_[A-Z]{2})\s+", line)
+        if not m:
+            continue
+        name = line[: m.start()].strip()
+        lang = m.group(1)
+        comment = line[m.end():].lstrip("# ").strip()
+        voices.append({"name": name, "lang": lang, "sample": comment})
     if lang_prefix:
         voices = [v for v in voices if v["lang"].startswith(lang_prefix)]
     voices.sort(key=lambda v: v["name"])
