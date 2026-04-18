@@ -667,6 +667,46 @@ button {
   font-size: 10px;
 }
 
+/* MCP client rows */
+.mcp-client-row {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mcp-client-row .name-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.mcp-client-row .name {
+  font-family: var(--mono);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.mcp-client-row .actions {
+  display: flex;
+  gap: 4px;
+}
+
+.mcp-cmd code {
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.mcp-status {
+  font-size: 11px;
+}
+
 .attachment-empty {
   color: var(--fg-muted);
   font-size: 12px;

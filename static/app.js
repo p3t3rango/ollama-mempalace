@@ -1591,6 +1591,7 @@ async function openSettings() {
   loadAaak();
   loadVoices();
   loadInstalledModels();
+  loadMcpClients();
 }
 
 async function loadInstalledModels() {
@@ -1641,6 +1642,172 @@ async function loadInstalledModels() {
     host.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
   }
 }
+
+/* ─── MCP clients (Settings → MCP) ────────────────────────────────────── */
+
+async function loadMcpClients() {
+  const host = document.getElementById("mcp-clients-list");
+  if (!host) return;
+  host.innerHTML = '<div class="muted">loading…</div>';
+  try {
+    const r = await fetch("/api/mcp/clients");
+    const d = await r.json();
+    const clients = d.clients || [];
+    if (!clients.length) {
+      host.innerHTML =
+        '<div class="muted">No external MCP servers configured yet. Add one below.</div>';
+      return;
+    }
+    host.innerHTML = "";
+    for (const c of clients) {
+      const row = document.createElement("div");
+      row.className = "mcp-client-row";
+      const status = c.is_running
+        ? "✓ running"
+        : c.last_error
+          ? `✗ ${c.last_error}`
+          : "○ stopped";
+      row.innerHTML = `
+        <div class="name-row">
+          <span class="name">${escapeHtml(c.name)}</span>
+          <span class="actions">
+            <button class="ghost mcp-probe" data-name="${escapeHtml(c.name)}" type="button">probe</button>
+            <button class="ghost mcp-edit" data-name="${escapeHtml(c.name)}" type="button">edit</button>
+            <button class="danger mcp-del" data-name="${escapeHtml(c.name)}" type="button">delete</button>
+          </span>
+        </div>
+        <div class="muted mcp-cmd"><code>${escapeHtml(c.command)} ${(c.args || []).map(escapeHtml).join(" ")}</code></div>
+        <div class="muted mcp-status">${escapeHtml(status)} · ${c.enabled ? "enabled" : "disabled"} · ${c.tool_count || 0} tools</div>
+      `;
+      host.appendChild(row);
+    }
+  } catch (e) {
+    host.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function openMcpEditor(existing) {
+  const host = document.getElementById("mcp-clients-list");
+  if (!host) return;
+  host.querySelectorAll(".mcp-edit-form").forEach((n) => n.remove());
+  const isNew = !existing;
+  const c = existing || {
+    name: "",
+    command: "",
+    args: [],
+    env: {},
+    enabled: true,
+  };
+  const form = document.createElement("div");
+  form.className = "persona-edit mcp-edit-form";
+  form.innerHTML = `
+    <div class="persona-edit-row">
+      <span class="muted">name</span>
+      <input class="me-name" value="${escapeHtml(c.name)}" ${isNew ? "" : "readonly"} placeholder="e.g. filesystem" />
+    </div>
+    <div class="persona-edit-row">
+      <span class="muted">command</span>
+      <input class="me-command" value="${escapeHtml(c.command || "")}" placeholder="e.g. npx" />
+    </div>
+    <div class="persona-edit-row">
+      <span class="muted">args (one per line)</span>
+    </div>
+    <textarea class="me-args" rows="3" placeholder="-y\n@modelcontextprotocol/server-filesystem\n/Users/me/Documents">${escapeHtml((c.args || []).join("\n"))}</textarea>
+    <div class="persona-edit-row">
+      <span class="muted">env vars (KEY=VALUE per line)</span>
+    </div>
+    <textarea class="me-env" rows="2" placeholder="GITHUB_TOKEN=ghp_…">${escapeHtml(
+      Object.entries(c.env || {})
+        .map(([k, v]) => `${k}=${v}`)
+        .join("\n"),
+    )}</textarea>
+    <label class="check"><input class="me-enabled" type="checkbox" ${c.enabled !== false ? "checked" : ""} /> enabled</label>
+    <div class="persona-edit-row">
+      <button type="button" class="primary me-save">${isNew ? "Create" : "Save"}</button>
+      <button type="button" class="ghost me-cancel">Cancel</button>
+      <span class="muted me-status"></span>
+    </div>
+  `;
+  host.appendChild(form);
+  form.querySelector(".me-cancel").addEventListener("click", () => form.remove());
+  form.querySelector(".me-save").addEventListener("click", async () => {
+    const name = form.querySelector(".me-name").value.trim();
+    const command = form.querySelector(".me-command").value.trim();
+    const args = form
+      .querySelector(".me-args")
+      .value.split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const env = {};
+    form
+      .querySelector(".me-env")
+      .value.split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const idx = line.indexOf("=");
+        if (idx > 0) env[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+      });
+    const enabled = form.querySelector(".me-enabled").checked;
+    const status = form.querySelector(".me-status");
+    if (!name || !command) {
+      status.textContent = "name + command required";
+      return;
+    }
+    status.textContent = "saving…";
+    try {
+      const r = await fetch("/api/mcp/clients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, command, args, env, enabled }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+      form.remove();
+      await loadMcpClients();
+    } catch (e) {
+      status.textContent = `error: ${e.message}`;
+    }
+  });
+}
+
+document.addEventListener("click", async (e) => {
+  if (e.target.id === "mcp-new") openMcpEditor(null);
+  if (e.target.id === "mcp-refresh") loadMcpClients();
+  if (e.target.classList?.contains("mcp-edit")) {
+    const name = e.target.dataset.name;
+    const r = await fetch("/api/mcp/clients");
+    const d = await r.json();
+    const cli = (d.clients || []).find((c) => c.name === name);
+    if (cli) openMcpEditor(cli);
+  }
+  if (e.target.classList?.contains("mcp-del")) {
+    const name = e.target.dataset.name;
+    if (!confirm(`Delete MCP server "${name}"?`)) return;
+    await fetch(`/api/mcp/clients/${encodeURIComponent(name)}`, { method: "DELETE" });
+    loadMcpClients();
+  }
+  if (e.target.classList?.contains("mcp-probe")) {
+    const name = e.target.dataset.name;
+    e.target.disabled = true;
+    e.target.textContent = "probing…";
+    try {
+      const r = await fetch(`/api/mcp/clients/${encodeURIComponent(name)}/probe`, {
+        method: "POST",
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setStatus(`${name}: ${d.tools.length} tools, ${d.resources.length} resources`, "ok");
+      } else {
+        setStatus(`${name}: ${d.error || "failed"}`, "err");
+      }
+      loadMcpClients();
+    } finally {
+      e.target.disabled = false;
+      e.target.textContent = "probe";
+    }
+  }
+});
 
 async function pullModelFlow() {
   const inp = document.getElementById("pull-model-name");

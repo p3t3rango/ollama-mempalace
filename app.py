@@ -46,6 +46,8 @@ from mempalace.mcp_server import (
 from mempalace.palace import get_collection
 from mempalace.searcher import search_memories
 
+import mcp_client
+
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 DEFAULT_ROOM = "general"
 DEFAULT_WING = "personal"
@@ -712,6 +714,92 @@ async def reconnect_endpoint():
     return tool_reconnect()
 
 
+# ─── External MCP clients ─────────────────────────────────────────────────
+
+
+class MCPClientBody(BaseModel):
+    name: str
+    command: str
+    args: list[str] = []
+    env: dict[str, str] = {}
+    enabled: bool = True
+
+
+@app.get("/api/mcp/clients")
+async def mcp_list_clients():
+    return {"clients": await mcp_client.status_snapshot()}
+
+
+@app.post("/api/mcp/clients")
+async def mcp_upsert_client(body: MCPClientBody):
+    try:
+        name = sanitize_name(body.name, "name")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    mcp_client.upsert(
+        name=name,
+        command=body.command,
+        args=body.args,
+        env=body.env,
+        enabled=body.enabled,
+    )
+    return {"ok": True, "name": name}
+
+
+@app.delete("/api/mcp/clients/{name}")
+async def mcp_remove_client(name: str):
+    if not mcp_client.remove(name):
+        raise HTTPException(404, f"no MCP client {name!r}")
+    return {"ok": True, "removed": name}
+
+
+@app.post("/api/mcp/clients/{name}/probe")
+async def mcp_probe_client(name: str):
+    """Spawn (or reuse) the named MCP client and return its tools/resources."""
+    client = mcp_client.get_registry().get(name)
+    if not client:
+        raise HTTPException(404, f"no MCP client {name!r}")
+    try:
+        if not client.is_running:
+            await client.start()
+    except Exception as e:
+        return {
+            "name": name,
+            "ok": False,
+            "error": str(e),
+            "is_running": False,
+            "tools": [],
+            "resources": [],
+        }
+    return {
+        "name": name,
+        "ok": True,
+        "is_running": client.is_running,
+        "tools": [
+            {"name": t.get("name"), "description": t.get("description", "")[:240]}
+            for t in client.tools
+        ],
+        "resources": [
+            {"uri": r.get("uri"), "name": r.get("name", "")}
+            for r in client.resources
+        ],
+    }
+
+
+@app.post("/api/mcp/clients/{name}/stop")
+async def mcp_stop_client(name: str):
+    client = mcp_client.get_registry().get(name)
+    if not client:
+        raise HTTPException(404, f"no MCP client {name!r}")
+    await client.stop()
+    return {"ok": True}
+
+
+@app.on_event("shutdown")
+async def _shutdown_mcp():
+    await mcp_client.shutdown_all()
+
+
 @app.post("/api/tunnels")
 async def create_tunnel_endpoint(body: TunnelCreateBody):
     return tool_create_tunnel(
@@ -1374,6 +1462,25 @@ TOOL_PROTOCOL = (
 )
 
 
+async def _exec_tool_async(
+    name: str, raw_args, current_wing: str, session_id: Optional[str]
+) -> dict:
+    """Async dispatcher — used by the chat handler. Routes mcp__* names to
+    the external MCP registry; everything else to the sync _exec_tool."""
+    if name.startswith("mcp__"):
+        if isinstance(raw_args, str):
+            try:
+                args = json.loads(raw_args) if raw_args.strip() else {}
+            except json.JSONDecodeError:
+                return {"error": f"invalid JSON arguments: {raw_args[:200]}"}
+        elif isinstance(raw_args, dict):
+            args = raw_args
+        else:
+            args = {}
+        return await mcp_client.dispatch_external(name, args)
+    return _exec_tool(name, raw_args, current_wing, session_id)
+
+
 def _exec_tool(
     name: str, raw_args, current_wing: str, session_id: Optional[str]
 ) -> dict:
@@ -1748,13 +1855,19 @@ async def chat(req: ChatRequest):
                 # Tool-enabled turn: non-streaming loop so tool_calls arrive intact.
                 async with httpx.AsyncClient(timeout=None) as client:
                     current = list(out_messages)
+                    # Merge external MCP tools (best-effort — ignore broken servers)
+                    try:
+                        ext_tools = await mcp_client.all_external_tools()
+                    except Exception:
+                        ext_tools = []
+                    combined_tools = TOOLS + ext_tools
                     for _ in range(MAX_TOOL_ITERATIONS):
                         r = await client.post(
                             f"{OLLAMA_HOST}/api/chat",
                             json={
                                 "model": req.model,
                                 "messages": current,
-                                "tools": TOOLS,
+                                "tools": combined_tools,
                                 "stream": False,
                             },
                         )
@@ -1824,7 +1937,7 @@ async def chat(req: ChatRequest):
                                 )
                                 + "\n\n"
                             )
-                            result = _exec_tool(
+                            result = await _exec_tool_async(
                                 name, raw_args, wing, req.session_id
                             )
                             yield (

@@ -190,6 +190,7 @@
             <button class="settings-tab" data-pane="voice">Voice</button>
             <button class="settings-tab" data-pane="wing-data">Wing data</button>
             <button class="settings-tab" data-pane="models">Models</button>
+            <button class="settings-tab" data-pane="mcp">MCP</button>
             <button class="settings-tab" data-pane="reference">Reference</button>
           </nav>
           <div class="settings-body">
@@ -418,6 +419,42 @@
                   <button id="pull-model-btn" class="primary" type="button">Pull</button>
                 </div>
                 <div id="pull-progress" class="muted" style="margin-top: 8px; font-family: var(--mono); font-size: 11px"></div>
+              </section>
+            </div>
+
+            <!-- ─── MCP (external clients) ─────────────────────────────── -->
+            <div class="settings-pane" data-pane="mcp" hidden>
+              <section>
+                <h3>External MCP servers</h3>
+                <span class="caption">
+                  Connect to other Model Context Protocol servers (filesystem,
+                  github, jira, postgres, etc.) so the agent can use their tools
+                  alongside ours. Tools enabled in any chat will appear as
+                  <code>mcp__&lt;server&gt;__&lt;tool&gt;</code>. Enabled servers are
+                  spawned lazily on first chat and reused.
+                </span>
+                <div id="mcp-clients-list"></div>
+                <div class="row" style="margin-top: 8px">
+                  <button id="mcp-new" class="ghost" type="button">+ Add server</button>
+                  <button id="mcp-refresh" class="ghost" type="button">Refresh</button>
+                </div>
+              </section>
+
+              <section>
+                <h3>Quick examples</h3>
+                <span class="caption">
+                  Most official MCP servers run via <code>npx</code> (Node) or
+                  <code>uvx</code> (Python). You'll need Node and/or uv installed.
+                </span>
+                <ul class="muted" style="font-size: 12px">
+                  <li>Filesystem: <code>npx -y @modelcontextprotocol/server-filesystem ~/Documents</code></li>
+                  <li>GitHub: <code>npx -y @modelcontextprotocol/server-github</code> + <code>GITHUB_TOKEN</code> env</li>
+                  <li>Postgres: <code>npx -y @modelcontextprotocol/server-postgres postgresql://...</code></li>
+                  <li>Browser: <code>npx -y @modelcontextprotocol/server-puppeteer</code></li>
+                </ul>
+                <span class="caption">
+                  Browse the full catalog at <a href="https://github.com/modelcontextprotocol/servers" target="_blank" rel="noopener">github.com/modelcontextprotocol/servers</a>.
+                </span>
               </section>
             </div>
 
