@@ -1592,6 +1592,7 @@ async function openSettings() {
   loadVoices();
   loadInstalledModels();
   loadMcpClients();
+  loadAgents();
 }
 
 async function loadInstalledModels() {
@@ -1642,6 +1643,161 @@ async function loadInstalledModels() {
     host.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
   }
 }
+
+/* ─── Sub-agents (Settings → Agents) ──────────────────────────────────── */
+
+async function loadAgents() {
+  const host = document.getElementById("agents-list");
+  if (!host) return;
+  host.innerHTML = '<div class="muted">loading…</div>';
+  try {
+    const r = await fetch("/api/agents");
+    const d = await r.json();
+    const agents = d.agents || [];
+    if (!agents.length) {
+      host.innerHTML =
+        '<div class="muted">No sub-agents yet. Add one to enable the <code>delegate</code> tool.</div>';
+      return;
+    }
+    host.innerHTML = "";
+    for (const a of agents) {
+      const row = document.createElement("div");
+      row.className = "agent-row";
+      const memWing = a.use_memory ? a.wing || "personal" : "no memory";
+      row.innerHTML = `
+        <div class="name-row">
+          <span class="name">${escapeHtml(a.name)}</span>
+          <span class="actions">
+            <button class="ghost agent-edit" data-name="${escapeHtml(a.name)}" type="button">edit</button>
+            <button class="danger agent-del" data-name="${escapeHtml(a.name)}" type="button">delete</button>
+          </span>
+        </div>
+        <div class="muted">${escapeHtml(a.description || "(no description)")}</div>
+        <div class="muted agent-meta">model: <code>${escapeHtml(a.model || "?")}</code> · memory: <code>${escapeHtml(memWing)}</code></div>
+      `;
+      host.appendChild(row);
+    }
+  } catch (e) {
+    host.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function openAgentEditor(existing) {
+  const host = document.getElementById("agents-list");
+  if (!host) return;
+  host.querySelectorAll(".agent-edit-form").forEach((n) => n.remove());
+  const isNew = !existing;
+  const a = existing || {
+    name: "",
+    description: "",
+    system_prompt: "",
+    model: state.models[0] || "",
+    wing: "",
+    use_memory: true,
+  };
+  // Build a model picker from currently installed Ollama models
+  const modelOptions = state.models
+    .map(
+      (m) =>
+        `<option value="${escapeHtml(m)}" ${m === a.model ? "selected" : ""}>${escapeHtml(m)}</option>`,
+    )
+    .join("");
+  // Build a wing picker from known wings, plus blank for "use chat's current wing"
+  const wingOptions =
+    `<option value="">(use the calling chat's wing)</option>` +
+    [...new Set([...state.knownWings, ...state.wings.map((w) => w.name)])]
+      .sort()
+      .map(
+        (w) =>
+          `<option value="${escapeHtml(w)}" ${w === (a.wing || "") ? "selected" : ""}>${escapeHtml(w)}</option>`,
+      )
+      .join("");
+  const form = document.createElement("div");
+  form.className = "persona-edit agent-edit-form";
+  form.innerHTML = `
+    <div class="persona-edit-row">
+      <span class="muted">name</span>
+      <input class="ag-name" value="${escapeHtml(a.name)}" ${isNew ? "" : "readonly"} placeholder="e.g. researcher" />
+    </div>
+    <div class="persona-edit-row">
+      <span class="muted">description</span>
+      <input class="ag-desc" value="${escapeHtml(a.description || "")}" placeholder="one-line summary the primary agent reads" />
+    </div>
+    <div class="persona-edit-row">
+      <span class="muted">model</span>
+      <select class="ag-model">${modelOptions}</select>
+    </div>
+    <div class="persona-edit-row">
+      <span class="muted">wing</span>
+      <select class="ag-wing">${wingOptions}</select>
+    </div>
+    <label class="check"><input class="ag-mem" type="checkbox" ${a.use_memory !== false ? "checked" : ""} /> use memory recall (search the wing before answering)</label>
+    <span class="muted">system prompt (the agent's identity / instructions)</span>
+    <textarea class="ag-prompt" rows="6">${escapeHtml(a.system_prompt || "")}</textarea>
+    <div class="persona-edit-row">
+      <button type="button" class="primary ag-save">${isNew ? "Create" : "Save"}</button>
+      <button type="button" class="ghost ag-cancel">Cancel</button>
+      <span class="muted ag-status"></span>
+    </div>
+  `;
+  host.appendChild(form);
+  form.querySelector(".ag-cancel").addEventListener("click", () => form.remove());
+  form.querySelector(".ag-save").addEventListener("click", async () => {
+    const name = form.querySelector(".ag-name").value.trim();
+    const description = form.querySelector(".ag-desc").value.trim();
+    const model = form.querySelector(".ag-model").value;
+    const wing = form.querySelector(".ag-wing").value || null;
+    const use_memory = form.querySelector(".ag-mem").checked;
+    const system_prompt = form.querySelector(".ag-prompt").value;
+    const status = form.querySelector(".ag-status");
+    if (!name || !model) {
+      status.textContent = "name + model required";
+      return;
+    }
+    status.textContent = "saving…";
+    try {
+      const url = isNew
+        ? "/api/agents"
+        : `/api/agents/${encodeURIComponent(a.name)}`;
+      const method = isNew ? "POST" : "PUT";
+      const r = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          description,
+          system_prompt,
+          model,
+          wing,
+          use_memory,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+      form.remove();
+      await loadAgents();
+    } catch (e) {
+      status.textContent = `error: ${e.message}`;
+    }
+  });
+}
+
+document.addEventListener("click", async (e) => {
+  if (e.target.id === "agent-new") openAgentEditor(null);
+  if (e.target.classList?.contains("agent-edit")) {
+    const name = e.target.dataset.name;
+    const r = await fetch("/api/agents");
+    const d = await r.json();
+    const ag = (d.agents || []).find((x) => x.name === name);
+    if (ag) openAgentEditor(ag);
+  }
+  if (e.target.classList?.contains("agent-del")) {
+    const name = e.target.dataset.name;
+    if (!confirm(`Delete agent "${name}"?`)) return;
+    await fetch(`/api/agents/${encodeURIComponent(name)}`, { method: "DELETE" });
+    loadAgents();
+  }
+});
 
 /* ─── MCP clients (Settings → MCP) ────────────────────────────────────── */
 

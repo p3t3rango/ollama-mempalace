@@ -667,6 +667,41 @@ button {
   font-size: 10px;
 }
 
+/* Agent rows in Settings → Agents */
+.agent-row {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-row .name-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.agent-row .name {
+  font-family: var(--mono);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.agent-row .actions {
+  display: flex;
+  gap: 4px;
+}
+
+.agent-row .agent-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
 /* MCP client rows */
 .mcp-client-row {
   background: var(--bg-3);

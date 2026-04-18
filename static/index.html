@@ -190,6 +190,7 @@
             <button class="settings-tab" data-pane="voice">Voice</button>
             <button class="settings-tab" data-pane="wing-data">Wing data</button>
             <button class="settings-tab" data-pane="models">Models</button>
+            <button class="settings-tab" data-pane="agents">Agents</button>
             <button class="settings-tab" data-pane="mcp">MCP</button>
             <button class="settings-tab" data-pane="reference">Reference</button>
           </nav>
@@ -419,6 +420,38 @@
                   <button id="pull-model-btn" class="primary" type="button">Pull</button>
                 </div>
                 <div id="pull-progress" class="muted" style="margin-top: 8px; font-family: var(--mono); font-size: 11px"></div>
+              </section>
+            </div>
+
+            <!-- ─── Agents (delegation targets) ────────────────────────── -->
+            <div class="settings-pane" data-pane="agents" hidden>
+              <section>
+                <h3>Sub-agents</h3>
+                <span class="caption">
+                  Specialists the primary chat agent can delegate subtasks to.
+                  Each agent has its own system prompt, model, and optional wing
+                  for memory scope. When tools are enabled in chat, the model
+                  gets a <code>delegate(agent, task)</code> tool listing every
+                  agent below. Sub-agents do not have <code>delegate</code>
+                  themselves (no recursion).
+                </span>
+                <div id="agents-list"></div>
+                <div class="row" style="margin-top: 8px">
+                  <button id="agent-new" class="ghost" type="button">+ New agent</button>
+                </div>
+              </section>
+
+              <section>
+                <h3>How delegation feels</h3>
+                <span class="caption">
+                  A typical use: you have a "researcher" agent on a small fast
+                  model and a "synthesizer" agent on a big reasoning model.
+                  The primary agent delegates the lookup to researcher, then
+                  hands the findings to synthesizer for the final answer.
+                  Each delegate call shows up as a tool-call chip in the
+                  assistant bubble — click to expand and see what was asked
+                  + what came back.
+                </span>
               </section>
             </div>
 

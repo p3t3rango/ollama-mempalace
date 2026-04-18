@@ -78,6 +78,7 @@ Path(PALACE_PATH).mkdir(parents=True, exist_ok=True)
 
 IDENTITY_PATH = Path(os.path.expanduser("~/.mempalace/identity.txt"))
 PERSONAS_PATH = Path(os.path.expanduser("~/.mempalace/personas.json"))
+AGENTS_PATH = Path(os.path.expanduser("~/.mempalace/agents.json"))
 
 app = FastAPI(title="ollama-mempalace")
 STATIC_DIR = Path(__file__).parent / "static"
@@ -130,6 +131,15 @@ class PersonaBody(BaseModel):
     name: str
     description: str = ""
     identity: str
+
+
+class AgentBody(BaseModel):
+    name: str
+    description: str = ""
+    system_prompt: str = ""
+    model: str
+    wing: Optional[str] = None
+    use_memory: bool = True
 
 
 class SpeakBody(BaseModel):
@@ -1018,6 +1028,202 @@ async def delete_identity():
     return {"ok": True}
 
 
+# ─── Sub-agents (delegation) ──────────────────────────────────────────────
+# An "agent" is a callable specialist: a system prompt + model + optional
+# wing scope. The primary chat agent (whatever model you're talking to)
+# can call `delegate(agent_name, task)` to hand off a subtask. Sub-agents
+# do NOT get the delegate tool themselves (no recursion).
+
+
+def _read_agents() -> list[dict]:
+    if not AGENTS_PATH.exists():
+        return []
+    try:
+        data = json.loads(AGENTS_PATH.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [a for a in data if isinstance(a, dict) and a.get("name")]
+    except Exception:
+        pass
+    return []
+
+
+def _write_agents(agents: list[dict]) -> None:
+    AGENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    AGENTS_PATH.write_text(
+        json.dumps(agents, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    try:
+        AGENTS_PATH.chmod(0o600)
+    except OSError:
+        pass
+
+
+def _build_delegate_tool() -> Optional[dict]:
+    """Build the delegate tool schema with the current agent registry baked
+    into its description + enum. Returns None if no agents exist yet."""
+    agents = _read_agents()
+    if not agents:
+        return None
+    agent_names = [a["name"] for a in agents]
+    descriptions = "\n".join(
+        f"  - {a['name']}: {a.get('description') or 'no description'}"
+        for a in agents
+    )
+    return {
+        "type": "function",
+        "function": {
+            "name": "delegate",
+            "description": (
+                "Delegate a focused subtask to a specialized sub-agent. Each "
+                "sub-agent has its own system prompt, model, and memory scope.\n\n"
+                "Available agents:\n"
+                + descriptions
+                + "\n\nUse when:\n"
+                "- The task is outside your specialty\n"
+                "- A different model would be better suited\n"
+                "- You want a focused single-turn answer without polluting this chat\n\n"
+                "The sub-agent's full text reply will be returned to you. "
+                "You can call this multiple times in a single turn."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agent": {
+                        "type": "string",
+                        "enum": agent_names,
+                        "description": "Name of the sub-agent to call.",
+                    },
+                    "task": {
+                        "type": "string",
+                        "description": "Plain-language task description for the sub-agent.",
+                    },
+                },
+                "required": ["agent", "task"],
+            },
+        },
+    }
+
+
+async def _exec_delegate(agent_name: str, task: str) -> dict:
+    """Run one round-trip with a sub-agent. Non-streaming, single-turn."""
+    agents = {a["name"]: a for a in _read_agents()}
+    agent = agents.get(agent_name)
+    if not agent:
+        return {"error": f"unknown agent: {agent_name!r}"}
+    if not task or not task.strip():
+        return {"error": "task required"}
+    model = agent.get("model")
+    if not model:
+        return {"error": f"agent {agent_name!r} has no model configured"}
+
+    messages: list[dict] = []
+    sys_prompt = (agent.get("system_prompt") or "").strip()
+    if sys_prompt:
+        messages.append({"role": "system", "content": sys_prompt})
+
+    # Optionally inject memory from the agent's wing (or our default wing)
+    if agent.get("use_memory", True):
+        wing = agent.get("wing") or DEFAULT_WING
+        try:
+            result = search_memories(
+                task, palace_path=PALACE_PATH, wing=wing, n_results=5
+            )
+            hits = result.get("results", []) or []
+            block = _format_memory_block(hits)
+            if block:
+                messages.append({"role": "system", "content": block})
+        except Exception:
+            pass
+
+    messages.append({"role": "user", "content": task})
+
+    try:
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            r = await client.post(
+                f"{OLLAMA_HOST}/api/chat",
+                json={"model": model, "messages": messages, "stream": False},
+            )
+            if r.status_code != 200:
+                return {"error": f"Ollama {r.status_code}: {r.text[:300]}"}
+            data = r.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+    msg = data.get("message", {}) or {}
+    return {
+        "agent": agent_name,
+        "task": task,
+        "model": model,
+        "response": (msg.get("content") or "").strip(),
+        "thinking": (msg.get("thinking") or "").strip() or None,
+    }
+
+
+@app.get("/api/agents")
+async def list_agents():
+    return {"agents": _read_agents()}
+
+
+@app.post("/api/agents")
+async def create_agent(body: AgentBody):
+    try:
+        name = sanitize_name(body.name, "agent name")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if name == "delegate":
+        raise HTTPException(400, "'delegate' is a reserved name")
+    agents = _read_agents()
+    if any(a["name"] == name for a in agents):
+        raise HTTPException(409, f"agent {name!r} already exists")
+    new = {
+        "name": name,
+        "description": body.description or "",
+        "system_prompt": body.system_prompt or "",
+        "model": body.model,
+        "wing": body.wing,
+        "use_memory": body.use_memory,
+    }
+    agents.append(new)
+    _write_agents(agents)
+    return new
+
+
+@app.put("/api/agents/{old_name}")
+async def update_agent(old_name: str, body: AgentBody):
+    try:
+        new_name = sanitize_name(body.name, "agent name")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    agents = _read_agents()
+    for i, a in enumerate(agents):
+        if a["name"] == old_name:
+            if new_name != old_name and any(
+                x["name"] == new_name for x in agents
+            ):
+                raise HTTPException(409, f"agent {new_name!r} already exists")
+            agents[i] = {
+                "name": new_name,
+                "description": body.description or "",
+                "system_prompt": body.system_prompt or "",
+                "model": body.model,
+                "wing": body.wing,
+                "use_memory": body.use_memory,
+            }
+            _write_agents(agents)
+            return agents[i]
+    raise HTTPException(404, f"agent {old_name!r} not found")
+
+
+@app.delete("/api/agents/{name}")
+async def delete_agent(name: str):
+    agents = _read_agents()
+    new = [a for a in agents if a["name"] != name]
+    if len(new) == len(agents):
+        raise HTTPException(404, f"agent {name!r} not found")
+    _write_agents(new)
+    return {"ok": True, "deleted": name}
+
+
 # ─── Voice input (Whisper) ────────────────────────────────────────────────
 
 WHISPER_MODELS = {
@@ -1465,20 +1671,29 @@ TOOL_PROTOCOL = (
 async def _exec_tool_async(
     name: str, raw_args, current_wing: str, session_id: Optional[str]
 ) -> dict:
-    """Async dispatcher — used by the chat handler. Routes mcp__* names to
-    the external MCP registry; everything else to the sync _exec_tool."""
+    """Async dispatcher — used by the chat handler. Routes:
+    - mcp__* → external MCP registry
+    - delegate → sub-agent
+    - everything else → sync _exec_tool
+    """
+    if isinstance(raw_args, str):
+        try:
+            args = json.loads(raw_args) if raw_args.strip() else {}
+        except json.JSONDecodeError:
+            return {"error": f"invalid JSON arguments: {raw_args[:200]}"}
+    elif isinstance(raw_args, dict):
+        args = raw_args
+    else:
+        args = {}
+
     if name.startswith("mcp__"):
-        if isinstance(raw_args, str):
-            try:
-                args = json.loads(raw_args) if raw_args.strip() else {}
-            except json.JSONDecodeError:
-                return {"error": f"invalid JSON arguments: {raw_args[:200]}"}
-        elif isinstance(raw_args, dict):
-            args = raw_args
-        else:
-            args = {}
         return await mcp_client.dispatch_external(name, args)
-    return _exec_tool(name, raw_args, current_wing, session_id)
+    if name == "delegate":
+        return await _exec_delegate(
+            str(args.get("agent") or "").strip(),
+            str(args.get("task") or "").strip(),
+        )
+    return _exec_tool(name, args, current_wing, session_id)
 
 
 def _exec_tool(
@@ -1860,7 +2075,10 @@ async def chat(req: ChatRequest):
                         ext_tools = await mcp_client.all_external_tools()
                     except Exception:
                         ext_tools = []
-                    combined_tools = TOOLS + ext_tools
+                    delegate_tool = _build_delegate_tool()
+                    combined_tools = TOOLS + ext_tools + (
+                        [delegate_tool] if delegate_tool else []
+                    )
                     for _ in range(MAX_TOOL_ITERATIONS):
                         r = await client.post(
                             f"{OLLAMA_HOST}/api/chat",
