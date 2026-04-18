@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="mempalace" />
+    <meta name="apple-mobile-web-app-title" content="Keepers" />
     <meta name="theme-color" content="#0a0a0a" />
     <link rel="manifest" href="/static/manifest.webmanifest" />
-    <link rel="icon" type="image/svg+xml" href="/static/icon.svg" />
+    <link rel="icon" type="image/png" href="/static/icon-192.png" />
     <link rel="apple-touch-icon" href="/static/icon-192.png" />
-    <title>ollama · mempalace</title>
+    <title>Keepers Temple</title>
     <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
@@ -105,19 +105,7 @@
         <span>Incognito chat — nothing recalled, nothing saved, no facts extracted.</span>
       </div>
       <section id="chat-area">
-        <div id="empty-state">
-          <div class="mascot" aria-hidden="true">
-            <div class="mascot-face">
-              <div class="ear left"></div>
-              <div class="ear right"></div>
-              <div class="head">
-                <div class="eye left"></div>
-                <div class="eye right"></div>
-              </div>
-            </div>
-          </div>
-          <div class="empty-hint">Send a message to start. Memory recall and save are on by default. Drop files anywhere to attach them to this wing.</div>
-        </div>
+        <div id="empty-state"></div>
         <div id="messages" hidden></div>
         <div id="drag-overlay" hidden>
           <div class="drag-card">
@@ -545,12 +533,16 @@
     <div id="welcome-overlay" hidden>
       <div class="settings-panel welcome-panel">
         <header>
-          <h2>Welcome</h2>
+          <div class="welcome-brand">
+            <img src="/static/logo-256.png" alt="Keepers" class="welcome-logo" />
+            <h2>Welcome to Keepers Temple</h2>
+          </div>
         </header>
         <div class="settings-body">
           <p>
-            This is your local AI with memory. It remembers what you tell it
-            across conversations — everything stays on your Mac, nothing leaves.
+            Your local AI with memory. It remembers what you tell it across
+            conversations — everything stays on your Mac, nothing leaves.
+            Powered by Ollama and the MemPalace memory engine.
           </p>
           <div class="field" style="margin: 20px 0 10px; min-width: 0">
             <span class="field-label">What should I call you?</span>

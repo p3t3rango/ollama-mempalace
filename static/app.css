@@ -1403,6 +1403,125 @@ textarea::placeholder {
   align-items: center;
   justify-content: center;
   gap: 24px;
+  padding: 24px;
+}
+
+.welcome-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.welcome-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+}
+
+.empty-logo {
+  width: 120px;
+  height: 120px;
+  border-radius: 16px;
+  opacity: 0.95;
+}
+
+.empty-card {
+  max-width: 540px;
+  width: 100%;
+  background: var(--bg-3, #161616);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 14px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.empty-card.empty-warn {
+  border-color: var(--accent-2, #5aa9e6);
+}
+
+.empty-card-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.empty-card-body {
+  margin: 0;
+  color: var(--fg-2, #c8c8c8);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.empty-card-body a {
+  color: var(--accent-2, #7ab8ec);
+  text-decoration: underline;
+}
+
+.empty-card-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.empty-card-err {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted, #888);
+  margin-top: 4px;
+  word-break: break-all;
+}
+
+.empty-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.empty-model-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px 14px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-2, #1c1c1c);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 10px;
+}
+
+.emr-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.emr-meta {
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
+.emr-progress {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  font-family: var(--mono);
+  min-height: 0;
+}
+
+.emr-progress:empty {
+  display: none;
+}
+
+.ghost-link {
+  color: var(--accent-2, #7ab8ec);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.ghost-link:hover {
+  text-decoration: underline;
 }
 
 .mascot {

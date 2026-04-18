@@ -1,7 +1,7 @@
 {
-  "name": "ollama-mempalace",
-  "short_name": "mempalace",
-  "description": "Local AI chat with persistent memory. Runs Ollama models on your Mac, remembers everything via MemPalace.",
+  "name": "Keepers Temple",
+  "short_name": "Keepers",
+  "description": "Local AI chat with persistent memory. Runs Ollama models on your Mac and remembers everything you've ever told it.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -20,12 +20,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
-    },
-    {
-      "src": "/static/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
     }
   ]
 }

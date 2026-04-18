@@ -54,6 +54,7 @@ const state = {
   knownWings: loadJSON(KNOWN_WINGS_KEY, ["personal"]),
   wings: [],
   models: [],
+  ollama: { reachable: true, error: null },
   personas: [{ name: "default", is_default: true, identity: "", description: "" }],
 };
 
@@ -625,6 +626,7 @@ function renderMessages() {
     els.emptyState.hidden = false;
     els.messages.hidden = true;
     els.messages.innerHTML = "";
+    renderEmptyState();
     return;
   }
   els.emptyState.hidden = true;
@@ -807,16 +809,185 @@ async function refreshTokenMeter() {
 async function loadModels() {
   try {
     const r = await fetch("/api/models");
+    if (!r.ok) {
+      // Backend reached us but Ollama itself is down — treat as unreachable.
+      const body = await r.text().catch(() => "");
+      state.ollama = { reachable: false, error: body || `HTTP ${r.status}` };
+      state.models = [];
+      els.model.innerHTML = "";
+      renderEmptyState();
+      syncSendDisabled();
+      return;
+    }
     const data = await r.json();
     state.models = data.models || [];
+    state.ollama = { reachable: true, error: null };
     els.model.innerHTML = state.models
       .map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`)
       .join("");
     if (state.prefs.model && state.models.includes(state.prefs.model)) {
       els.model.value = state.prefs.model;
     }
+    renderEmptyState();
+    syncSendDisabled();
   } catch (e) {
-    setStatus(`models: ${e.message}`, "err");
+    state.ollama = { reachable: false, error: e.message };
+    state.models = [];
+    els.model.innerHTML = "";
+    renderEmptyState();
+    syncSendDisabled();
+  }
+}
+
+const SUGGESTED_MODELS = [
+  { name: "llama3.2:3b", size: "~2 GB", note: "tiny + fast, good first try" },
+  { name: "gemma3:4b", size: "~3 GB", note: "Google, balanced" },
+  { name: "qwen3:4b", size: "~2.5 GB", note: "Qwen, strong tool use" },
+  { name: "deepseek-r1:8b", size: "~5 GB", note: "shows reasoning, slower" },
+];
+
+function syncSendDisabled() {
+  if (!els.send) return;
+  const noModels = !state.models || state.models.length === 0;
+  els.send.disabled = noModels;
+  els.send.title = noModels
+    ? state.ollama && state.ollama.reachable
+      ? "Install an Ollama model first (see the chat area)"
+      : "Ollama isn't running — start it to chat"
+    : "Send (⌘↵)";
+}
+
+function renderEmptyState() {
+  const host = els.emptyState;
+  if (!host) return;
+  const s = getActiveSession();
+  if (s && s.messages && s.messages.length) return; // Only renders when no chat yet.
+
+  // Case 1: Ollama unreachable
+  if (state.ollama && !state.ollama.reachable) {
+    host.innerHTML = `
+      <img src="/static/logo-256.png" alt="Keepers" class="empty-logo" />
+      <div class="empty-card empty-warn">
+        <div class="empty-card-title">Ollama isn't running</div>
+        <p class="empty-card-body">
+          Keepers Temple uses <a href="https://ollama.com/download" target="_blank" rel="noopener">Ollama</a>
+          to run models locally on your Mac. Open the Ollama app, then come back and click
+          <b>Try again</b>. If you don't have it yet, download it from
+          <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a>.
+        </p>
+        <div class="empty-card-row">
+          <button class="primary" id="empty-retry" type="button">Try again</button>
+          <a class="ghost-link" href="https://ollama.com/download" target="_blank" rel="noopener">Download Ollama →</a>
+        </div>
+        <div class="empty-card-err">${escapeHtml((state.ollama && state.ollama.error) || "")}</div>
+      </div>
+    `;
+    const btn = document.getElementById("empty-retry");
+    if (btn) btn.addEventListener("click", loadModels);
+    return;
+  }
+
+  // Case 2: Ollama is up but no models
+  if (!state.models || state.models.length === 0) {
+    host.innerHTML = `
+      <img src="/static/logo-256.png" alt="Keepers" class="empty-logo" />
+      <div class="empty-card">
+        <div class="empty-card-title">No models installed yet</div>
+        <p class="empty-card-body">
+          Keepers Temple needs an Ollama model to chat with. Pick one below and we'll
+          download it for you. The first pull is the slowest — after that, the model
+          stays on your Mac forever and runs offline.
+        </p>
+        <div class="empty-models">
+          ${SUGGESTED_MODELS.map(
+            (m) => `
+            <div class="empty-model-row" data-name="${escapeHtml(m.name)}">
+              <div class="emr-info">
+                <div class="emr-name">${escapeHtml(m.name)}</div>
+                <div class="emr-meta muted">${escapeHtml(m.size)} · ${escapeHtml(m.note)}</div>
+              </div>
+              <button class="primary emr-pull" type="button" data-name="${escapeHtml(m.name)}">Pull</button>
+              <div class="emr-progress muted"></div>
+            </div>
+          `,
+          ).join("")}
+        </div>
+        <div class="empty-card-row" style="margin-top:14px">
+          <span class="muted">Want a different model? Browse <a href="https://ollama.com/library" target="_blank" rel="noopener">ollama.com/library</a>, then add it from Settings → Manage models.</span>
+        </div>
+      </div>
+    `;
+    host.querySelectorAll(".emr-pull").forEach((btn) => {
+      btn.addEventListener("click", () => emptyStatePullModel(btn.dataset.name));
+    });
+    return;
+  }
+
+  // Case 3: ready, just no chat yet — show the Keepers logo + hint
+  host.innerHTML = `
+    <img src="/static/logo-256.png" alt="Keepers Temple" class="empty-logo" />
+    <div class="empty-hint">Send a message to start. Memory recall and save are on by default. Drop files anywhere to attach them to this wing.</div>
+  `;
+}
+
+async function emptyStatePullModel(name) {
+  const row = els.emptyState.querySelector(`.empty-model-row[data-name="${CSS.escape(name)}"]`);
+  if (!row) return;
+  const btn = row.querySelector(".emr-pull");
+  const progress = row.querySelector(".emr-progress");
+  btn.disabled = true;
+  progress.textContent = "starting…";
+  try {
+    const r = await fetch("/api/models/pull", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        for (const line of block.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (evt.type === "error") {
+              progress.textContent = `error: ${evt.message}`;
+              btn.disabled = false;
+              return;
+            }
+            const status = evt.status || "";
+            if (evt.total && evt.completed) {
+              const pct = ((evt.completed / evt.total) * 100).toFixed(0);
+              progress.textContent = `${status} — ${pct}%`;
+            } else {
+              progress.textContent = status;
+            }
+            if (status === "success") {
+              progress.textContent = `installed ✓`;
+              await loadModels();
+              if (els.model && state.models.includes(name)) {
+                els.model.value = name;
+                state.prefs.model = name;
+                saveJSON(PREFS_KEY, state.prefs);
+              }
+              return;
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch (e) {
+    progress.textContent = `error: ${e.message}`;
+    btn.disabled = false;
   }
 }
 

@@ -1,4 +1,8 @@
-# ollama-mempalace
+# Keepers Temple
+
+<p align="center">
+  <img src="static/logo-256.png" alt="Keepers Temple" width="180" />
+</p>
 
 A local-first chat UI that wires any [Ollama](https://ollama.com) model to a [MemPalace](https://github.com/MemPalace/mempalace) memory layer. Your conversations build a persistent, searchable memory that the model recalls automatically — and tool-capable models can curate the memory themselves as you chat.
 
@@ -6,7 +10,7 @@ Everything stays on your machine. No API keys. No data leaves your laptop.
 
 ## Why this exists
 
-Ollama gives you great local models. MemPalace gives you a serious memory backend with wings, rooms, a temporal knowledge graph, and an MCP server. But the official Ollama desktop app has no plugin system and can't talk to MemPalace. This is the missing UI: an Ollama-style chat experience with MemPalace stitched in as a first-class layer.
+Ollama gives you great local models. MemPalace gives you a serious memory backend with wings, rooms, a temporal knowledge graph, and an MCP server. But the official Ollama desktop app has no plugin system and can't talk to MemPalace. Keepers Temple is the missing UI: an Ollama-style chat experience with MemPalace stitched in as a first-class layer.
 
 ## Features
 
