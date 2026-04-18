@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -807,6 +808,74 @@ async def delete_identity():
     if IDENTITY_PATH.exists():
         IDENTITY_PATH.unlink()
     return {"ok": True}
+
+
+# ─── Voice input (Whisper) ────────────────────────────────────────────────
+
+WHISPER_MODELS = {
+    "tiny.en": "mlx-community/whisper-tiny.en-mlx",
+    "base.en": "mlx-community/whisper-base.en-mlx-q4",
+    "small.en": "mlx-community/whisper-small.en-mlx-q4",
+    "medium.en": "mlx-community/whisper-medium.en-mlx-q4",
+    "large-v3": "mlx-community/whisper-large-v3-mlx",
+}
+
+
+@app.post("/api/transcribe")
+async def transcribe_endpoint(
+    audio: UploadFile = File(...),
+    model: str = "base.en",
+):
+    """Transcribe an uploaded audio blob (WAV recommended) via mlx-whisper."""
+    repo = WHISPER_MODELS.get(model)
+    if not repo:
+        raise HTTPException(
+            400, f"unknown whisper model {model!r}. one of: {list(WHISPER_MODELS)}"
+        )
+
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(400, "empty audio")
+    if len(raw) > 50 * 1024 * 1024:
+        raise HTTPException(413, "audio over 50MB cap")
+
+    # Pick a sensible suffix so librosa/soundfile can sniff the format.
+    ct = (audio.content_type or "").lower()
+    if "wav" in ct or audio.filename and audio.filename.endswith(".wav"):
+        suffix = ".wav"
+    elif "webm" in ct:
+        suffix = ".webm"
+    elif "ogg" in ct:
+        suffix = ".ogg"
+    elif "mp3" in ct or "mpeg" in ct:
+        suffix = ".mp3"
+    else:
+        suffix = ".wav"
+
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(raw)
+        tmp.flush()
+        tmp.close()
+        try:
+            import mlx_whisper  # lazy import — heavy
+        except ImportError as e:
+            raise HTTPException(500, f"mlx-whisper not installed: {e}")
+        try:
+            result = mlx_whisper.transcribe(tmp.name, path_or_hf_repo=repo)
+        except Exception as e:
+            raise HTTPException(500, f"transcription failed: {e}")
+        text = (result.get("text") or "").strip()
+        return {
+            "text": text,
+            "language": result.get("language"),
+            "model": model,
+        }
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
 
 # ─── Personas ─────────────────────────────────────────────────────────────

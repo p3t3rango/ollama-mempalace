@@ -105,7 +105,9 @@ const els = {
   composer: $("composer"),
   send: $("send"),
   composerPlus: $("composer-plus"),
+  composerMic: $("composer-mic"),
   composerRecall: $("composer-recall"),
+  whisperModel: $("whisper-model"),
   model: $("model"),
   toggleMemoryPane: $("toggle-memory-pane"),
   memoryPane: $("memory-pane"),
@@ -1596,6 +1598,182 @@ if (els.uploadWingFileBtn) {
   els.uploadWingFileBtn.addEventListener("click", () =>
     els.wingFileInput.click(),
   );
+}
+
+/* ─── Voice input (Whisper) ───────────────────────────────────────────── */
+
+let micRecorder = null;
+let micChunks = [];
+let micStream = null;
+let micAudioCtx = null;
+
+const WHISPER_PREF_KEY = "ollama-mempalace.whisperModel";
+
+function preferredWhisperModel() {
+  return localStorage.getItem(WHISPER_PREF_KEY) || "base.en";
+}
+
+async function startMic() {
+  if (micRecorder) return;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        sampleRate: 16000,
+      },
+    });
+  } catch (e) {
+    setStatus(`mic permission denied: ${e.message}`, "err");
+    return;
+  }
+  // Pick a supported mimeType — Safari prefers mp4, Chrome prefers webm.
+  const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+    ? "audio/webm;codecs=opus"
+    : MediaRecorder.isTypeSupported("audio/mp4")
+      ? "audio/mp4"
+      : "";
+  micRecorder = new MediaRecorder(micStream, mime ? { mimeType: mime } : undefined);
+  micChunks = [];
+  micRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) micChunks.push(e.data);
+  };
+  micRecorder.onstop = handleMicStop;
+  micRecorder.start();
+  els.composerMic.classList.add("recording");
+  setStatus("recording — click mic to stop", "");
+}
+
+function stopMic() {
+  if (micRecorder && micRecorder.state !== "inactive") {
+    micRecorder.stop();
+  }
+}
+
+async function handleMicStop() {
+  els.composerMic.classList.remove("recording");
+  els.composerMic.classList.add("transcribing");
+  if (micStream) {
+    micStream.getTracks().forEach((t) => t.stop());
+    micStream = null;
+  }
+  const mime = micRecorder?.mimeType || "audio/webm";
+  micRecorder = null;
+  const blob = new Blob(micChunks, { type: mime });
+  micChunks = [];
+  if (!blob.size) {
+    els.composerMic.classList.remove("transcribing");
+    setStatus("nothing recorded", "warn");
+    return;
+  }
+  setStatus("transcribing…", "");
+  let wavBlob;
+  try {
+    wavBlob = await encodeAsWav(blob);
+  } catch (e) {
+    els.composerMic.classList.remove("transcribing");
+    setStatus(`audio decode failed: ${e.message}`, "err");
+    return;
+  }
+  const fd = new FormData();
+  fd.append("audio", wavBlob, "recording.wav");
+  fd.append("model", preferredWhisperModel());
+  try {
+    const r = await fetch("/api/transcribe", { method: "POST", body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || JSON.stringify(data));
+    const text = (data.text || "").trim();
+    if (text) {
+      const cur = els.input.value;
+      els.input.value = cur ? `${cur} ${text}` : text;
+      els.input.dispatchEvent(new Event("input"));
+      els.input.focus();
+      setStatus(`transcribed (${text.split(/\s+/).length} words)`, "ok");
+    } else {
+      setStatus("transcription empty", "warn");
+    }
+  } catch (e) {
+    setStatus(`transcribe failed: ${e.message}`, "err");
+  } finally {
+    els.composerMic.classList.remove("transcribing");
+  }
+}
+
+async function encodeAsWav(blob) {
+  if (!micAudioCtx) {
+    micAudioCtx = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate: 16000,
+    });
+  }
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioBuffer = await micAudioCtx.decodeAudioData(arrayBuffer);
+  // Downmix to mono if multi-channel
+  const samples = mixToMono(audioBuffer);
+  // Resample to 16 kHz if needed (AudioContext at 16k usually handles it)
+  return audioBufferSamplesToWav(samples, 16000);
+}
+
+function mixToMono(audioBuffer) {
+  const len = audioBuffer.length;
+  if (audioBuffer.numberOfChannels === 1) {
+    return audioBuffer.getChannelData(0);
+  }
+  const out = new Float32Array(len);
+  for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+    const data = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < len; i++) out[i] += data[i];
+  }
+  for (let i = 0; i < len; i++) out[i] /= audioBuffer.numberOfChannels;
+  return out;
+}
+
+function audioBufferSamplesToWav(samples, sampleRate) {
+  const bytes = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(bytes);
+  // RIFF header
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, "WAVE");
+  // fmt chunk
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  // data chunk
+  writeString(view, 36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += 2;
+  }
+  return new Blob([bytes], { type: "audio/wav" });
+}
+
+function writeString(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+if (els.composerMic) {
+  els.composerMic.addEventListener("click", () => {
+    if (micRecorder && micRecorder.state !== "inactive") {
+      stopMic();
+    } else {
+      startMic();
+    }
+  });
+}
+
+if (els.whisperModel) {
+  els.whisperModel.value = preferredWhisperModel();
+  els.whisperModel.addEventListener("change", () => {
+    localStorage.setItem(WHISPER_PREF_KEY, els.whisperModel.value);
+  });
 }
 
 let _dragDepth = 0;

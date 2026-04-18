@@ -135,6 +135,14 @@
           ></textarea>
           <div class="composer-row">
             <button type="button" id="composer-plus" class="pill-btn" title="Attach a file to this message (stays only for this turn). For persistent wing-wide files, use Settings → Permanent wing files.">＋</button>
+            <button type="button" id="composer-mic" class="pill-btn" title="Hold or click to start dictation. Click again to stop and transcribe. Whisper runs locally on Apple Silicon — nothing leaves your Mac.">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="2" width="6" height="12" rx="3"/>
+                <path d="M5 10v2a7 7 0 0 0 14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            </button>
             <button type="button" id="composer-recall" class="pill-btn toggle" title="Toggle recall">
               <span class="ic">🧠</span>
               <span class="lbl">recall</span>
@@ -298,6 +306,37 @@
                 <input id="t-auto-kg" type="checkbox" />
                 Auto-populate knowledge graph (extra LLM pass per turn)
               </label>
+            </div>
+          </section>
+
+          <section>
+            <h3>Voice input (Whisper)</h3>
+            <span class="caption">
+              Click the mic in the composer to dictate. Whisper runs locally on
+              Apple Silicon — nothing leaves your Mac. First use of each model
+              size downloads it once.
+            </span>
+            <div class="grid">
+              <label>
+                Model size
+                <span class="caption">
+                  Larger = better accuracy + slower. <code>base.en</code> is plenty
+                  for chat. Bump to <code>small.en</code> if names/punctuation are
+                  garbled. <code>large-v3</code> handles non-English.
+                </span>
+                <select id="whisper-model">
+                  <option value="tiny.en">tiny.en (~75 MB)</option>
+                  <option value="base.en" selected>base.en (~140 MB)</option>
+                  <option value="small.en">small.en (~460 MB)</option>
+                  <option value="medium.en">medium.en (~1.5 GB)</option>
+                  <option value="large-v3">large-v3 (~3 GB, multilingual)</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section style="display:none">
+            <div></div>
             </div>
           </section>
 

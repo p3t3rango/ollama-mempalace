@@ -4,3 +4,5 @@ httpx>=0.27
 pydantic>=2.5
 python-multipart>=0.0.9
 mempalace>=0.6
+# Voice input — Apple Silicon native Whisper. ~200MB of deps (torch, mlx).
+mlx-whisper>=0.4
