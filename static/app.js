@@ -140,6 +140,7 @@ const els = {
   tIdentity: $("t-identity"),
   tTools: $("t-tools"),
   tAutoKg: $("t-auto-kg"),
+  tThinkingPreview: $("t-thinking-preview"),
   refreshWakeup: $("refresh-wakeup"),
   wakeupTokens: $("wakeup-tokens"),
   wakeupText: $("wakeup-text"),
@@ -168,6 +169,8 @@ function savePrefs() {
   state.prefs.identity = els.tIdentity.checked;
   if (els.tTools) state.prefs.tools = els.tTools.checked;
   if (els.tAutoKg) state.prefs.autoKg = els.tAutoKg.checked;
+  if (els.tThinkingPreview)
+    state.prefs.thinkingPreview = els.tThinkingPreview.checked;
   saveJSON(PREFS_KEY, state.prefs);
   syncRecallButton();
 }
@@ -444,9 +447,11 @@ function renderMessages() {
     const think = (m.thinking || "").trim();
     if (think) {
       const stillThinking = !(m.content && m.content.trim());
+      const showPreview =
+        stillThinking && state.prefs.thinkingPreview !== false;
       const label = stillThinking ? "Thinking…" : "Thoughts";
       const icon = `<svg class="think-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 1 4 12.7c-.6.5-1 1.3-1 2.1V18H9v-1.2c0-.8-.4-1.6-1-2.1A7 7 0 0 1 12 2z"/></svg>`;
-      thinkingTag = `<details class="msg-thinking"${stillThinking ? " open" : ""}><summary>${icon}<span class="think-label">${label}</span></summary><div class="thinking-body">${escapeHtml(think)}</div></details>`;
+      thinkingTag = `<details class="msg-thinking${showPreview ? " is-preview" : ""}"${showPreview ? " open" : ""}><summary>${icon}<span class="think-label">${label}</span></summary><div class="thinking-body">${escapeHtml(think)}</div></details>`;
     }
     const toolsTag =
       m.toolCalls && m.toolCalls.length
@@ -2751,6 +2756,7 @@ const prefInputs = [
 ];
 if (els.tTools) prefInputs.push(els.tTools);
 if (els.tAutoKg) prefInputs.push(els.tAutoKg);
+if (els.tThinkingPreview) prefInputs.push(els.tThinkingPreview);
 prefInputs.forEach((el) => el.addEventListener("change", savePrefs));
 
 if (els.model) {
@@ -2795,6 +2801,8 @@ if (els.wingPromptPicker) {
   els.tIdentity.checked = state.prefs.identity !== false;
   if (els.tTools) els.tTools.checked = !!state.prefs.tools;
   if (els.tAutoKg) els.tAutoKg.checked = !!state.prefs.autoKg;
+  if (els.tThinkingPreview)
+    els.tThinkingPreview.checked = state.prefs.thinkingPreview !== false;
   state.prefs.recall = els.tRecall.checked;
   state.prefs.save = els.tSave.checked;
   state.prefs.extract = els.tExtract.checked;

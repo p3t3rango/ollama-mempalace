@@ -1404,6 +1404,32 @@ textarea::placeholder {
   color: var(--fg-dim);
 }
 
+/* Preview mode while thinking is streaming — fade-tail like Ollama */
+.msg-thinking.is-preview .thinking-body {
+  max-height: 140px;
+  border-left: none;
+  background: transparent;
+  padding: 4px 0;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.6) 25%,
+    black 70%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.6) 25%,
+    black 70%
+  );
+  color: var(--fg-muted);
+}
+
+.msg-thinking.is-preview .thinking-body::-webkit-scrollbar {
+  display: none;
+}
+
 .msg .msg-attachments {
   font-family: var(--mono);
   font-size: 10px;
