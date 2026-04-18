@@ -193,6 +193,26 @@ async def root():
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/sw.js")
+async def service_worker():
+    """Service worker must be served from the root scope (or with
+    Service-Worker-Allowed header) for it to control / requests. Easier
+    to just serve it from /sw.js."""
+    return FileResponse(
+        STATIC_DIR / "sw.js",
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/"},
+    )
+
+
+@app.get("/manifest.webmanifest")
+async def manifest_root():
+    return FileResponse(
+        STATIC_DIR / "manifest.webmanifest",
+        media_type="application/manifest+json",
+    )
+
+
 @app.get("/api/health")
 async def health():
     return {"ok": True, "palace_path": PALACE_PATH, "ollama_host": OLLAMA_HOST}

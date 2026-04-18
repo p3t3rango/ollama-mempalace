@@ -3266,6 +3266,14 @@ if (els.wingPromptPicker) {
 
 /* ─── Init ─────────────────────────────────────────────────────────────── */
 
+// Register the service worker as soon as the script loads — once
+// registered, the browser surfaces the "Install" affordance.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
+    // Silent — PWA install just won't be available; everything else still works.
+  });
+}
+
 (async function init() {
   setStatus("loading…", "");
   // One-time migration: prefs from earlier sessions may have stored
