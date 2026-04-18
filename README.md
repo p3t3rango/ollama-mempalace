@@ -104,6 +104,34 @@ Sessions and per-wing system prompts live in browser localStorage (per-browser, 
 - `OLLAMA_HOST` — defaults to `http://localhost:11434`
 - `MEMPALACE_PALACE_PATH` — defaults to `~/.mempalace/palace`
 
+## Quick capture (global hotkey)
+
+Two ways to send a thought into a new chat without picking up the mouse:
+
+**Built-in shortcuts** (when the tab is focused):
+- `⌘ K` — focus the composer
+- `⌘ ⇧ N` — new chat
+- `⌘ ⇧ I` — new incognito chat
+- `⌘ B` — toggle sidebar
+- `Esc` — close any open modal
+
+**True global hotkey** — pair the URL-param API with a launcher:
+
+`http://localhost:8765/?q=text&wing=journal&persona=journal-companion&submit=1`
+
+Supported params: `q` (prefill text), `wing`, `persona`, `model`, `incognito=1`, `submit=1` (auto-send instead of just prefilling).
+
+Raycast / Alfred / Shortcuts / Hammerspoon — bind a hotkey that opens
+that URL with your selected text. Example Hammerspoon:
+
+```lua
+hs.hotkey.bind({"cmd", "shift"}, "M", function()
+  local text = hs.pasteboard.getContents() or ""
+  local url = "http://localhost:8765/?q=" .. hs.http.encodeForQuery(text) .. "&submit=1"
+  hs.urlevent.openURL(url)
+end)
+```
+
 ## Use your palace from Claude Desktop / Cursor / Codex (MCP)
 
 `mcp_stdio.py` exposes your palace as a Model Context Protocol server.

@@ -3644,6 +3644,102 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+// In-page keyboard shortcuts (Mac convention: Cmd; Win/Linux: Ctrl)
+function isMod(e) {
+  return e.metaKey || e.ctrlKey;
+}
+window.addEventListener("keydown", (e) => {
+  // Ignore if user is mid-edit in a textarea/input that handles its own shortcuts,
+  // unless they're using a modifier we explicitly capture.
+  const target = e.target;
+  const isComposer =
+    target === els.input || target?.classList?.contains("edit-area");
+  // Cmd/Ctrl + K → focus the composer input
+  if (isMod(e) && !e.shiftKey && (e.key === "k" || e.key === "K")) {
+    e.preventDefault();
+    els.input.focus();
+    return;
+  }
+  // Cmd/Ctrl + Shift + N → new chat
+  if (isMod(e) && e.shiftKey && (e.key === "n" || e.key === "N")) {
+    e.preventDefault();
+    els.newChat?.click();
+    return;
+  }
+  // Cmd/Ctrl + Shift + I → new incognito
+  if (isMod(e) && e.shiftKey && (e.key === "i" || e.key === "I")) {
+    e.preventDefault();
+    els.newIncognito?.click();
+    return;
+  }
+  // Cmd/Ctrl + B → toggle sidebar
+  if (isMod(e) && !e.shiftKey && (e.key === "b" || e.key === "B")) {
+    if (isComposer && !e.shiftKey) return; // don't steal text-formatting attempts
+    e.preventDefault();
+    if (isMobile()) {
+      document.body.classList.toggle("mobile-sidebar-open");
+    } else if (document.body.classList.contains("no-sidebar")) {
+      els.showSidebar?.click();
+    } else {
+      els.toggleSidebar?.click();
+    }
+    return;
+  }
+  // Esc closes any open modal
+  if (e.key === "Escape") {
+    if (els.settingsOverlay && !els.settingsOverlay.hidden) {
+      els.settingsOverlay.hidden = true;
+      saveWingPromptForCurrent();
+      return;
+    }
+    if (els.memoryOverlay && !els.memoryOverlay.hidden) {
+      els.memoryOverlay.hidden = true;
+      return;
+    }
+    if (
+      isMobile() &&
+      document.body.classList.contains("mobile-sidebar-open")
+    ) {
+      document.body.classList.remove("mobile-sidebar-open");
+      return;
+    }
+  }
+});
+
+// URL-param quick capture: ?q=text&wing=...&persona=...&model=...&submit=1
+// Lets external tools (Raycast, Shortcuts, Hammerspoon) push a thought
+// straight into a new chat with one keypress.
+async function applyUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get("q");
+  if (q == null) return;
+  // Strip the query so a refresh doesn't re-trigger
+  history.replaceState({}, "", window.location.pathname);
+  // Always start in a fresh session for capture
+  const incognito = params.get("incognito") === "1";
+  createSession({ anonymous: incognito });
+  const wing = params.get("wing");
+  const persona = params.get("persona");
+  const model = params.get("model");
+  if (wing) setCurrentWing(wing);
+  if (persona) setCurrentPersona(persona);
+  if (model && state.models.includes(model)) {
+    els.model.value = model;
+    const s = getActiveSession();
+    if (s) s.model = model;
+    saveJSON(SESSIONS_KEY, state.sessions);
+  }
+  renderSessions();
+  renderMessages();
+  els.input.value = q;
+  els.input.dispatchEvent(new Event("input"));
+  els.input.focus();
+  if (params.get("submit") === "1" && q.trim()) {
+    await sendMessage(q.trim());
+    els.input.value = "";
+  }
+}
+
 (async function init() {
   setStatus("loading…", "");
   // One-time migration: prefs from earlier sessions may have stored
@@ -3706,4 +3802,6 @@ if ("serviceWorker" in navigator) {
 
   setStatus("ready", "ok");
   els.input.focus();
+  // Process URL-driven quick capture last so it sees fully-loaded state.
+  await applyUrlParams();
 })();
