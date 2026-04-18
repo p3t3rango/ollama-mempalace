@@ -986,6 +986,65 @@ button {
   text-align: right;
 }
 
+/* Browser bulk actions */
+.browser-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.browser-bulk-bar .bulk-count {
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.bulk-pick {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--sans);
+  max-width: 200px;
+}
+
+.browser-list-header {
+  padding: 4px 6px 8px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 8px;
+}
+
+.select-all-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.drawer-row {
+  position: relative;
+}
+
+.drawer-row .drawer-select {
+  margin-right: 8px;
+  vertical-align: top;
+}
+
+.drawer-row.is-selected {
+  border-color: var(--accent-2);
+  background: rgba(123, 166, 255, 0.06);
+}
+
 /* Browser */
 .browser-toolbar {
   display: flex;

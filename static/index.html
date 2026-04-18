@@ -594,6 +594,16 @@
           </div>
 
           <div class="tab-pane" data-tab="browser" hidden>
+            <div id="browser-bulk-bar" class="browser-bulk-bar" hidden>
+              <span class="bulk-count"><b id="bulk-selected-count">0</b> selected</span>
+              <div class="grow"></div>
+              <select id="bulk-move-wing" class="bulk-pick">
+                <option value="">— move to wing —</option>
+              </select>
+              <button id="bulk-move-btn" class="ghost" type="button" disabled>Move</button>
+              <button id="bulk-delete-btn" class="danger" type="button">Delete</button>
+              <button id="bulk-clear-btn" class="ghost" type="button">Clear</button>
+            </div>
             <div class="browser-toolbar">
               <div class="field">
                 <span class="field-label">Wing</span>
@@ -618,6 +628,12 @@
                 <input id="browser-until" type="date" />
               </div>
               <button id="browser-reload" class="ghost">refresh</button>
+            </div>
+            <div class="browser-list-header">
+              <label class="select-all-wrap">
+                <input id="browser-select-all" type="checkbox" />
+                <span>select all on this page</span>
+              </label>
             </div>
             <div id="browser-list"></div>
             <div class="browser-pager">

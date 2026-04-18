@@ -159,6 +159,13 @@ const els = {
   browserPage: $("browser-page"),
   browserSince: $("browser-since"),
   browserUntil: $("browser-until"),
+  browserSelectAll: $("browser-select-all"),
+  browserBulkBar: $("browser-bulk-bar"),
+  bulkSelectedCount: $("bulk-selected-count"),
+  bulkMoveWing: $("bulk-move-wing"),
+  bulkMoveBtn: $("bulk-move-btn"),
+  bulkDeleteBtn: $("bulk-delete-btn"),
+  bulkClearBtn: $("bulk-clear-btn"),
 };
 
 function savePrefs() {
@@ -2687,6 +2694,41 @@ window.addEventListener("drop", async (e) => {
 /* ─── Memory modal ────────────────────────────────────────────────────── */
 
 const browserState = { offset: 0, limit: 50, total: 0 };
+const browserSelected = new Set(); // drawer_ids checked across renders
+
+function syncBulkBar() {
+  if (!els.browserBulkBar) return;
+  const n = browserSelected.size;
+  els.browserBulkBar.hidden = n === 0;
+  if (els.bulkSelectedCount) els.bulkSelectedCount.textContent = String(n);
+  if (els.bulkMoveBtn)
+    els.bulkMoveBtn.disabled = !els.bulkMoveWing?.value || n === 0;
+  // Update select-all state
+  if (els.browserSelectAll) {
+    const visibleRows = els.browserList?.querySelectorAll(".drawer-row") || [];
+    const checked = [...visibleRows].filter((r) =>
+      browserSelected.has(r.dataset.id),
+    ).length;
+    els.browserSelectAll.checked =
+      visibleRows.length > 0 && checked === visibleRows.length;
+    els.browserSelectAll.indeterminate =
+      checked > 0 && checked < visibleRows.length;
+  }
+}
+
+function populateBulkMoveWingPicker() {
+  if (!els.bulkMoveWing) return;
+  const wings = [
+    ...new Set([...state.knownWings, ...state.wings.map((w) => w.name)]),
+  ].sort();
+  els.bulkMoveWing.innerHTML =
+    `<option value="">— move to wing —</option>` +
+    wings
+      .map(
+        (w) => `<option value="${escapeHtml(w)}">${escapeHtml(w)}</option>`,
+      )
+      .join("");
+}
 
 function fmtTime(iso) {
   if (!iso) return "?";
@@ -2877,8 +2919,13 @@ async function loadBrowser() {
       for (const row of rows) {
         const card = document.createElement("div");
         card.className = "drawer-row";
+        card.dataset.id = row.drawer_id;
+        if (browserSelected.has(row.drawer_id)) card.classList.add("is-selected");
         card.innerHTML = `
           <div class="meta-line">
+            <label class="select-wrap">
+              <input type="checkbox" class="drawer-select" ${browserSelected.has(row.drawer_id) ? "checked" : ""} />
+            </label>
             <span>${escapeHtml(row.wing)} / ${escapeHtml(row.room)}</span>
             <span>${fmtTime(row.filed_at)} · ${row.length}c · ${escapeHtml(row.added_by || "?")}</span>
           </div>
@@ -2896,12 +2943,23 @@ async function loadBrowser() {
             </div>
           </div>
         `;
+        // Bulk-select checkbox handler — separate from row click expansion
+        const sel = card.querySelector(".drawer-select");
+        sel.addEventListener("click", (e) => e.stopPropagation());
+        sel.addEventListener("change", () => {
+          if (sel.checked) browserSelected.add(row.drawer_id);
+          else browserSelected.delete(row.drawer_id);
+          card.classList.toggle("is-selected", sel.checked);
+          syncBulkBar();
+        });
+
         let loadedFull = false;
         card.addEventListener("click", async (e) => {
           if (
             e.target.tagName === "TEXTAREA" ||
             e.target.tagName === "INPUT" ||
-            e.target.tagName === "BUTTON"
+            e.target.tagName === "BUTTON" ||
+            e.target.tagName === "LABEL"
           )
             return;
           const wasExpanded = card.classList.toggle("expanded");
@@ -2977,6 +3035,8 @@ async function loadBrowser() {
     els.browserPrev.disabled = browserState.offset <= 0;
     els.browserNext.disabled =
       browserState.offset + browserState.limit >= browserState.total;
+    populateBulkMoveWingPicker();
+    syncBulkBar();
   } catch (e) {
     els.browserList.innerHTML = `<div class="muted">error: ${escapeHtml(e.message)}</div>`;
   }
@@ -3499,6 +3559,98 @@ els.browserNext.addEventListener("click", () => {
       loadBrowser();
     });
   });
+
+if (els.browserSelectAll) {
+  els.browserSelectAll.addEventListener("change", () => {
+    const checked = els.browserSelectAll.checked;
+    const visibleRows = els.browserList?.querySelectorAll(".drawer-row") || [];
+    visibleRows.forEach((r) => {
+      const id = r.dataset.id;
+      const cb = r.querySelector(".drawer-select");
+      if (checked) browserSelected.add(id);
+      else browserSelected.delete(id);
+      if (cb) cb.checked = checked;
+      r.classList.toggle("is-selected", checked);
+    });
+    syncBulkBar();
+  });
+}
+
+if (els.bulkClearBtn) {
+  els.bulkClearBtn.addEventListener("click", () => {
+    browserSelected.clear();
+    document
+      .querySelectorAll(".drawer-row")
+      .forEach((r) => r.classList.remove("is-selected"));
+    document
+      .querySelectorAll(".drawer-select")
+      .forEach((cb) => (cb.checked = false));
+    syncBulkBar();
+  });
+}
+
+if (els.bulkMoveWing) {
+  els.bulkMoveWing.addEventListener("change", syncBulkBar);
+}
+
+if (els.bulkMoveBtn) {
+  els.bulkMoveBtn.addEventListener("click", async () => {
+    const wing = els.bulkMoveWing.value;
+    if (!wing || browserSelected.size === 0) return;
+    const ids = [...browserSelected];
+    if (
+      !confirm(
+        `Move ${ids.length} drawer(s) to wing "${wing}"? Their content stays the same — only the wing tag changes.`,
+      )
+    )
+      return;
+    try {
+      const r = await fetch("/api/drawers/bulk-move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, wing }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+      setStatus(`moved ${d.moved} drawer(s) → ${wing}`, "ok");
+      browserSelected.clear();
+      els.bulkMoveWing.value = "";
+      rememberWing(wing);
+      await loadBrowser();
+      await loadWings(state.prefs.wing);
+    } catch (e) {
+      setStatus(`bulk move failed: ${e.message}`, "err");
+    }
+  });
+}
+
+if (els.bulkDeleteBtn) {
+  els.bulkDeleteBtn.addEventListener("click", async () => {
+    if (browserSelected.size === 0) return;
+    const ids = [...browserSelected];
+    if (
+      !confirm(
+        `Delete ${ids.length} drawer(s)? This cannot be undone via the UI.`,
+      )
+    )
+      return;
+    try {
+      const r = await fetch("/api/drawers/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || JSON.stringify(d));
+      setStatus(`deleted ${d.deleted} drawer(s)`, "warn");
+      browserSelected.clear();
+      await loadBrowser();
+      await loadWings(state.prefs.wing);
+    } catch (e) {
+      setStatus(`bulk delete failed: ${e.message}`, "err");
+    }
+  });
+}
 
 els.saveIdentity.addEventListener("click", saveIdentity);
 els.resetIdentity.addEventListener("click", resetIdentity);

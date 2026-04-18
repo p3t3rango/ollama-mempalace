@@ -662,6 +662,78 @@ async def delete_drawer(drawer_id: str):
     return tool_delete_drawer(drawer_id)
 
 
+class BulkIdsBody(BaseModel):
+    ids: list[str]
+
+
+class BulkMoveBody(BaseModel):
+    ids: list[str]
+    wing: str
+    room: Optional[str] = None
+
+
+@app.post("/api/drawers/bulk-delete")
+async def bulk_delete_drawers(body: BulkIdsBody):
+    if not body.ids:
+        return {"deleted": 0, "errors": []}
+    col = _safe_collection()
+    if col is None:
+        raise HTTPException(404, "No palace yet")
+    try:
+        # Fetch first so we know which IDs actually existed
+        existing = col.get(ids=body.ids, include=["metadatas"])
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    found_ids = existing.get("ids") or []
+    if not found_ids:
+        return {"deleted": 0, "errors": ["no matching drawers"]}
+    try:
+        col.delete(ids=found_ids)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"deleted": len(found_ids), "errors": []}
+
+
+@app.post("/api/drawers/bulk-move")
+async def bulk_move_drawers(body: BulkMoveBody):
+    if not body.ids:
+        return {"moved": 0, "errors": []}
+    try:
+        new_wing = sanitize_name(body.wing, "wing")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    new_room: Optional[str] = None
+    if body.room:
+        try:
+            new_room = sanitize_name(body.room, "room")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    col = _safe_collection()
+    if col is None:
+        raise HTTPException(404, "No palace yet")
+    try:
+        existing = col.get(ids=body.ids, include=["metadatas", "documents"])
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    found_ids = existing.get("ids") or []
+    metas = existing.get("metadatas") or []
+    docs = existing.get("documents") or []
+    if not found_ids:
+        return {"moved": 0, "errors": ["no matching drawers"]}
+    new_metas = []
+    for m in metas:
+        nm = dict(m or {})
+        nm["wing"] = new_wing
+        if new_room:
+            nm["room"] = new_room
+        new_metas.append(nm)
+    try:
+        col.upsert(ids=found_ids, documents=docs, metadatas=new_metas)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    return {"moved": len(found_ids), "errors": []}
+
+
 @app.post("/api/check-duplicate")
 async def check_dupe(body: DupeCheckBody):
     return tool_check_duplicate(body.content, body.threshold)
