@@ -413,6 +413,26 @@ function ensureSession() {
 
 /* ─── Messages ─────────────────────────────────────────────────────────── */
 
+// Coalesce many thinking chunks into one rAF-paced render so the DOM
+// rebuild + auto-scroll keep up with high-throughput streams.
+let _pendingRenderFrame = null;
+function scheduleRender() {
+  if (_pendingRenderFrame !== null) return;
+  _pendingRenderFrame = requestAnimationFrame(() => {
+    _pendingRenderFrame = null;
+    renderMessages();
+    // Defer scroll to a SECOND frame so the browser has actually laid
+    // out the new innerHTML before we measure scrollHeight.
+    requestAnimationFrame(() => {
+      document
+        .querySelectorAll(".msg-thinking.is-preview .thinking-body")
+        .forEach((el) => {
+          el.scrollTop = el.scrollHeight;
+        });
+    });
+  });
+}
+
 function renderMessages() {
   const s = getActiveSession();
   els.anonBanner.hidden = !(s && s.anonymous);
@@ -444,6 +464,7 @@ function renderMessages() {
             .join(", ")}</div>`
         : "";
     let thinkingTag = "";
+    let thinkRenderText = "";
     const think = (m.thinking || "").trim();
     if (think) {
       const stillThinking = !(m.content && m.content.trim());
@@ -451,7 +472,13 @@ function renderMessages() {
         stillThinking && state.prefs.thinkingPreview !== false;
       const label = stillThinking ? "Thinking…" : "Thoughts";
       const icon = `<svg class="think-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 1 4 12.7c-.6.5-1 1.3-1 2.1V18H9v-1.2c0-.8-.4-1.6-1-2.1A7 7 0 0 1 12 2z"/></svg>`;
-      thinkingTag = `<details class="msg-thinking${showPreview ? " is-preview" : ""}"${showPreview ? " open" : ""}><summary>${icon}<span class="think-label">${label}</span></summary><div class="thinking-body">${escapeHtml(think)}</div></details>`;
+      // In preview mode, only render the tail. Full text is restored once
+      // thinking is done (collapsed; click to expand the full reasoning).
+      thinkRenderText =
+        showPreview && think.length > 2000
+          ? "…" + think.slice(-2000)
+          : think;
+      thinkingTag = `<details class="msg-thinking${showPreview ? " is-preview" : ""}"${showPreview ? " open" : ""}><summary>${icon}<span class="think-label">${label}</span></summary><div class="thinking-body">${escapeHtml(thinkRenderText)}</div></details>`;
     }
     const toolsTag =
       m.toolCalls && m.toolCalls.length
@@ -473,10 +500,12 @@ function renderMessages() {
     attachCodeCopyButtons(div);
     // Render thinking body as markdown too (model often uses markdown in CoT)
     const thinkingBody = div.querySelector(".thinking-body");
-    if (thinkingBody && m.thinking) {
-      thinkingBody.innerHTML = renderMarkdown(m.thinking);
+    if (thinkingBody && thinkRenderText) {
+      thinkingBody.innerHTML = renderMarkdown(thinkRenderText);
       attachCodeCopyButtons(thinkingBody);
-      // In preview mode, auto-scroll to keep the latest reasoning visible
+      // In preview mode, auto-scroll to keep the latest reasoning visible.
+      // Real scroll-anchoring happens in scheduleRender's second rAF —
+      // this is a synchronous best-effort for non-rAF render paths.
       if (div.querySelector(".msg-thinking.is-preview")) {
         thinkingBody.scrollTop = thinkingBody.scrollHeight;
       }
@@ -1037,7 +1066,7 @@ async function sendMessage(text) {
             renderHits(evt.hits);
           } else if (evt.type === "thinking") {
             asstMsg.thinking = (asstMsg.thinking || "") + evt.content;
-            renderMessages();
+            scheduleRender();
           } else if (evt.type === "tool_call") {
             if (!asstMsg.toolCalls) asstMsg.toolCalls = [];
             asstMsg.toolCalls.push({
@@ -1061,6 +1090,8 @@ async function sendMessage(text) {
             }
             renderMessages();
           } else if (evt.type === "token") {
+            // (token rendering branch — still uses direct renderMessages
+            // since each token mutates content, not thinking)
             assistantText += evt.content;
             asstMsg.content = assistantText;
             renderMessages();
