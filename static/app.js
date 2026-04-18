@@ -1464,9 +1464,14 @@ async function deleteWing() {
 
 els.composer.addEventListener("submit", (e) => {
   e.preventDefault();
-  // If a generation is in flight, the send button acts as STOP instead.
+  // If a generation is in flight OR TTS is reading, the send button acts as STOP.
   if (activeAbort) {
     stopGeneration();
+    return;
+  }
+  if (activeAudio) {
+    stopActiveAudio();
+    setStatus("speech stopped", "warn");
     return;
   }
   const text = els.input.value.trim();
@@ -2574,6 +2579,7 @@ function stopActiveAudio() {
       }
     } catch {}
     activeAudio = null;
+    setSendingState(false);
   }
 }
 
@@ -2597,13 +2603,22 @@ async function speakText(text) {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     activeAudio = audio;
+    // While audio plays, repurpose the send button as a stop control so
+    // there's an obvious way to halt long readings without typing or hunting.
+    setSendingState(true);
     audio.onended = () => {
       URL.revokeObjectURL(url);
-      if (activeAudio === audio) activeAudio = null;
+      if (activeAudio === audio) {
+        activeAudio = null;
+        setSendingState(false);
+      }
     };
     audio.onerror = () => {
       URL.revokeObjectURL(url);
-      if (activeAudio === audio) activeAudio = null;
+      if (activeAudio === audio) {
+        activeAudio = null;
+        setSendingState(false);
+      }
     };
     await audio.play();
   } catch (e) {
@@ -3682,6 +3697,16 @@ window.addEventListener("keydown", (e) => {
       els.showSidebar?.click();
     } else {
       els.toggleSidebar?.click();
+    }
+    return;
+  }
+  // Esc — first priority: stop in-flight generation or TTS
+  if (e.key === "Escape" && (activeAbort || activeAudio)) {
+    e.preventDefault();
+    if (activeAbort) stopGeneration();
+    else if (activeAudio) {
+      stopActiveAudio();
+      setStatus("speech stopped", "warn");
     }
     return;
   }
