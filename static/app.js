@@ -797,6 +797,10 @@ function openPersonaEditor(opts) {
   });
   editor.querySelector("textarea").focus();
 }
+
+/* ─── Identity (Layer 0) ──────────────────────────────────────────────── */
+
+async function loadIdentity() {
   try {
     const r = await fetch("/api/identity");
     const data = await r.json();
