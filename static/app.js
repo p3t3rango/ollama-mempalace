@@ -2309,8 +2309,10 @@ function switchTab(name) {
   else if (name === "browser") {
     populateBrowserWingFilter();
     loadBrowser();
-  } else if (name === "graph") loadKgStats();
-  else if (name === "tunnels") loadTunnels();
+  } else if (name === "graph") {
+    loadKgStats();
+    if (kgViewMode === "graph") loadKgGraph();
+  } else if (name === "tunnels") loadTunnels();
   else if (name === "diary") loadDiary();
 }
 
